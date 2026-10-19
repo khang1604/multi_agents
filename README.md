@@ -36,6 +36,59 @@ python scripts/install_global_rules.py
 python scripts/install_global_rules.py --apply
 ```
 
+## Prompt cài đặt và chạy thử trên Windows
+
+Dán toàn bộ prompt dưới đây vào agent có quyền dùng terminal trên máy Windows.
+Bạn có thể thay thư mục `D:\Tools\multi_agents` trước khi gửi. Prompt này cho phép
+cài Hub, cài global rules có backup và chạy mô phỏng; chưa cho phép gọi AI có phí.
+
+```text
+Hãy trực tiếp cài đặt và chạy thử dự án cá nhân này trên Windows 10/11:
+https://github.com/khang1604/multi_agents.git
+
+Thư mục đích: D:\Tools\multi_agents. Nếu không có ổ D:, dùng
+%USERPROFILE%\Documents\multi_agents và báo lại đường dẫn thực tế.
+
+Thực hiện lần lượt:
+1. Kiểm tra Windows, PowerShell, Git và Python >= 3.11 bằng lệnh version.
+   Ưu tiên python; nếu không dùng được, thử py -3 và dùng cùng một interpreter
+   cho các bước tiếp theo. Chưa có Git/Python thì hướng dẫn hoặc cài từ nguồn
+   chính thức nếu quyền hiện tại cho phép; không tự nâng quyền admin hay tắt
+   chính sách bảo mật. Không cần cài package pip cho Hub.
+2. Clone repo vào thư mục đích nếu chưa tồn tại. Nếu đã có, kiểm tra đúng remote
+   và git status; giữ mọi thay đổi có sẵn, không reset/clean/ghi đè. Chỉ cập nhật
+   bằng fast-forward khi working tree sạch; có xung đột thì báo rõ và dừng cập nhật.
+3. Đọc AGENTS.md, GLOBAL_RULES.md và docs/SECURITY.md. Chỉ thao tác source của Hub
+   và fixture giả lập do demo tạo. Không mở .env, secrets, token, dữ liệu người dùng,
+   backup/DB thật hoặc quét các thư mục cá nhân. Không in biến môi trường hàng loạt.
+4. Tại root repo, chạy lần lượt, kiểm tra exit code sau từng lệnh:
+   python hub.py init
+   python -m unittest discover -s tests -v
+   python hub.py demo --simulate
+   Thay python bằng py -3 nếu đã chọn interpreter đó. Nếu lỗi, chẩn đoán trong
+   phạm vi repo và sửa tối thiểu; không tắt sandbox hoặc bật --network để né lỗi.
+5. Cài global rules bằng script có sẵn; tôi cho phép cập nhật các file rule được
+   script liệt kê và tạo backup, giữ nguyên nội dung khác:
+   python scripts/install_global_rules.py
+   python scripts/install_global_rules.py --apply
+   Chỉ truy cập đúng các file instruction cần thiết, không đọc cấu hình đăng nhập.
+6. Sinh cấu hình MCP bằng python hub.py mcp-config. Hiển thị khối JSON để tôi ghép
+   server agent-hub-private vào Antigravity, giữ nguyên server khác. Không tự mở
+   hoặc in cấu hình toàn cục có thể chứa secrets. Cho tôi biết cần refresh MCP
+   và khởi động chat agent mới để nạp global rules.
+7. Chưa cài hoặc đăng nhập CLI AI cũng phải chạy được demo --simulate. Không tự
+   đăng nhập, đọc credential, gọi model thật, bật autostart hoặc giao task có phí.
+   Giữ security.isolated_test_environment và synthetic_data_only ở false.
+   Không tự xác nhận môi trường cách ly. Nếu tôi muốn thử AI thật sau đó, giải thích
+   điều kiện trong docs/SECURITY.md và yêu cầu tôi chuẩn bị/xác nhận ranh giới test.
+8. Báo kết quả ngắn: đường dẫn cài, interpreter/version, số test pass/fail,
+   workflow demo có completed không, vị trí ZIP deliverable, backup rules và bước
+   tiếp theo. Chỉ báo thành công dựa trên output thực tế; phần chưa chạy phải ghi rõ.
+
+Nếu terminal không có quyền hoặc thiếu công cụ, chỉ rõ bước bị chặn và đưa lệnh
+PowerShell cụ thể để tôi tự chạy. Không khẳng định đã cài khi chưa thực hiện.
+```
+
 ## Menu và chạy AI sau khi chuẩn bị môi trường test
 
 1. Giải nén dự án vào thư mục cố định, ví dụ `D:\Tools\AgentHubPrivate`.

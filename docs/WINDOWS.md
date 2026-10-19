@@ -57,3 +57,14 @@ và Linux nhưng chưa chạy trên GitHub. Khóa msvcrt, Win32 PID handle, task
 và Task Scheduler cần xác nhận bằng offline demo/tests trên Windows của bạn.
 
 CI mẫu ở `docs/github-actions-test.yml.example`. Chưa bật GitHub Actions vì token push thiếu scope workflow. Muốn bật, chép mẫu vào `.github/workflows/test.yml` và push bằng tài khoản/token có quyền workflow.
+
+## Lệnh từ folder dự án
+
+Chạy `scripts/install-command.ps1` một lần để thêm thư mục Hub vào PATH của user,
+rồi mở terminal mới. Trong folder Git được phép, chạy `hub here` để đăng ký/khôi phục
+trạng thái không tốn quota. Launcher `hub.cmd` giữ nguyên cwd của dự án, không cd vào Hub.
+Nếu PATH có công cụ khác cùng tên, kiểm tra `where.exe hub` và gọi đúng `hub.cmd` bằng
+đường dẫn tuyệt đối. Dùng `hub here --name my-app` ở lần đầu nếu muốn tên ngắn.
+Lệnh test suy ra từ tên file tracked là gợi ý, không được thực thi lúc nhận diện.
+Node/monorepo/loại không rõ cần `--verify`; xem ví dụ quoting CMD/PowerShell trong README.
+Không nâng quyền hoặc đổi ExecutionPolicy nếu script PATH bị chặn: gọi hub.cmd trực tiếp.

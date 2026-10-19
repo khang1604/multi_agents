@@ -39,6 +39,9 @@ def parser():
     add.add_argument('--verify', required=True, help='JSON array of command argument arrays; {python} is portable')
     add.add_argument('--context', default='["README.md","app","src","tests"]')
     add.add_argument('--network', action='store_true', help='Legacy flag; real workflows reject unrestricted tool network under test-only security policy')
+    here = sub.add_parser('here', help='Detect the current Git project and recover progress; no AI call')
+    here.add_argument('--name', help='Optional name for a new registration')
+    here.add_argument('--verify', help='Explicit JSON array of test command argument arrays')
     sub.add_parser('projects')
     sub.add_parser('cleanup')
     run = sub.add_parser('run')
@@ -96,6 +99,9 @@ def main(argv=None):
     elif args.command == 'doctor': output(doctor(hub))
     elif args.command == 'project-add':
         output(hub.store.add_project(args.name, args.path, json.loads(args.verify), json.loads(args.context), args.network))
+    elif args.command == 'here':
+        from agenthub.discovery import identify
+        output(identify(hub, Path.cwd(), args.name, json.loads(args.verify) if args.verify else None))
     elif args.command == 'projects': output(hub.store.all('SELECT * FROM projects'))
     elif args.command == 'run':
         objective = Path(args.task_file).read_text(encoding='utf-8') if args.task_file else args.objective

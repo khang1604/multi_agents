@@ -81,13 +81,89 @@ Thực hiện lần lượt:
    Giữ security.isolated_test_environment và synthetic_data_only ở false.
    Không tự xác nhận môi trường cách ly. Nếu tôi muốn thử AI thật sau đó, giải thích
    điều kiện trong docs/SECURITY.md và yêu cầu tôi chuẩn bị/xác nhận ranh giới test.
-8. Báo kết quả ngắn: đường dẫn cài, interpreter/version, số test pass/fail,
+8. Cài lệnh dùng từ folder dự án bằng scripts/install-command.ps1; tôi cho phép
+   thêm đúng thư mục Hub vào PATH của user hiện tại, không sửa PATH hệ thống.
+   Nếu policy chặn script thì không bypass: hướng dẫn gọi hub.cmd bằng đường dẫn
+   tuyệt đối. Không chạy hub here trong folder cá nhân tùy ý; chỉ chạy khi tôi
+   chỉ định source project được phép. Lệnh này không khởi chạy AI.
+9. Báo kết quả ngắn: đường dẫn cài, interpreter/version, số test pass/fail,
    workflow demo có completed không, vị trí ZIP deliverable, backup rules và bước
    tiếp theo. Chỉ báo thành công dựa trên output thực tế; phần chưa chạy phải ghi rõ.
 
 Nếu terminal không có quyền hoặc thiếu công cụ, chỉ rõ bước bị chặn và đưa lệnh
 PowerShell cụ thể để tôi tự chạy. Không khẳng định đã cài khi chưa thực hiện.
 ```
+
+## Tự nhận diện dự án từ CMD/PowerShell: `hub here`
+
+Cài Hub một lần tại thư mục cố định. Thêm lệnh `hub` vào PATH người dùng bằng
+PowerShell (không cần admin):
+
+```powershell
+& "D:\Tools\multi_agents\scripts\install-command.ps1"
+```
+
+Mở terminal mới, vào folder dự án rồi chạy:
+
+```bat
+cd /d D:\Projects\my-app
+hub here
+```
+
+Trong PowerShell, dùng `cd D:\Projects\my-app` thay cho `cd /d`.
+Không muốn chỉnh PATH hoặc máy chặn script PowerShell? Gọi trực tiếp từ folder dự án:
+
+```bat
+D:\Tools\multi_agents\hub.cmd here
+```
+
+Nếu đường dẫn Hub có khoảng trắng, CMD dùng `"D:\My Tools\multi_agents\hub.cmd" here`;
+PowerShell dùng `& "D:\My Tools\multi_agents\hub.cmd" here`.
+
+`here` tìm Git root kể cả khi đang ở thư mục con. Lần đầu đăng ký tên dạng
+`my-app-<hash đường dẫn>`; lần sau nhận lại đúng project và trả memory/tiến độ gần đây.
+Không ghi file vào repo, không tự git init, không chạy test hoặc gọi AI.
+Repo chưa commit/sạch vẫn nhận diện được; muốn chạy workflow sau đó phải có baseline sạch.
+Không tự đổi project khi trùng tên hoặc ghi đè cấu hình đã đăng ký.
+
+Hub chỉ dùng Git root và **tên file được Git theo dõi**, không đọc nội dung source,
+.env hay package scripts để nhận diện. Có gợi ý pytest/unittest, Go, Rust và .NET.
+Đây là gợi ý, chưa phải lệnh test đã xác minh; Python dùng pytest nhưng không có marker
+pytest có thể bị gợi ý unittest, hãy khai báo `--verify` ngay lần đăng ký đầu.
+Node, monorepo nhiều hệ test hoặc dự án không rõ cần chỉ định lệnh test:
+
+```bat
+hub here --name my-app --verify "[[\"node\",\"--test\"]]"
+```
+
+Ví dụ trên dành cho CMD. Với PowerShell 7 dùng:
+
+```powershell
+hub here --name my-app --verify '[["node","--test"]]'
+```
+
+Nếu PowerShell trên máy làm mất quote khi gọi file `.cmd`, gọi Python trực tiếp:
+
+```powershell
+python D:\Tools\multi_agents\hub.py here --name my-app --verify '[["node","--test"]]'
+```
+
+Nếu vẫn lỗi JSON trên PowerShell cũ, dùng cách đăng ký bằng Python trong
+[docs/WINDOWS.md](docs/WINDOWS.md). Không đoán lệnh test hoặc dùng lệnh luôn trả thành công.
+`here` giữ nguyên cờ security. Chỉ dùng trong source được phép; tự nhận diện không có nghĩa
+đã cách ly hay được phép gọi API thật.
+
+Sau khi đã chuẩn bị môi trường test và xác nhận điều kiện bảo mật, giao việc bằng tên
+project mà `hub here` trả về, hoặc dùng MCP trong Antigravity:
+
+```bat
+hub run my-app "Them tinh nang loc cong viec" --request-key filter-1
+hub recover my-app
+```
+
+`hub run` ở đây dùng tên đã đặt bằng `--name my-app`. Mặc định `hub here` chỉ đăng ký/
+khôi phục trạng thái; không tự tiếp tục workflow hoặc khởi chạy daemon. Với workflow bị chặn,
+xử lý nguyên nhân rồi dùng `hub retry WORKFLOW_ID`; không tạo task trùng.
 
 ## Menu và chạy AI sau khi chuẩn bị môi trường test
 

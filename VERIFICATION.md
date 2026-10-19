@@ -2,9 +2,13 @@
 
 Môi trường phát triển: Linux, Python 3.12, Git, Codex CLI 0.163.0-alpha.10.2.
 
-- 39 unittest pass sau khi thêm security gate, gồm retry/failover, quota wait,
+- 46 unittest pass sau khi thêm security gate, gồm retry/failover, quota wait,
   generation, context/cache, verification/repair, cleanup giữ code, daemon độc lập,
   timeout subprocess và security mặc định chặn/cấm unrestricted network.
+- Thêm 7 test nhận diện dự án: chạy từ thư mục con/đường dẫn có khoảng trắng,
+  đăng ký lặp khôi phục memory, tên folder trùng, repo không rõ, giữ cấu hình cũ,
+  ngoài Git và CLI chạy từ cwd khác. Không gọi model hoặc chạy test của repo được nhận diện.
+- Launcher hub.cmd và script PATH PowerShell chưa được chạy trực tiếp trên Windows.
 - Demo offline dùng SQLite/Git worktree/test thật, model được mô phỏng; không tốn quota.
 - Smoke test Codex thật trước khi bổ sung policy bảo mật: 1 lượt CLI sửa tiêu đề README
   trong fixture, 2 test pass; đã xuất ZIP, source gốc không đổi. Kết quả này không chứng

@@ -1,0 +1,113 @@
+import json
+import time
+from pathlib import Path
+from .config import load
+from .policy import classify
+from .store import Store, encode
+from .platforms import pid_alive
+from .service import start_daemon, daemon_status
+
+
+class Hub:
+    def __init__(self, home):
+        self.store = Store(home)
+        self.config = load(home)
+
+    def start(self, project, objective, request_key, max_calls=None, mode='auto', launch=True, prepared_plan=None, handoff=None):
+        if handoff is not None:
+            from .workspace import validate_handoff
+            validate_handoff(handoff)
+        if mode not in {'auto', 'small', 'standard', 'complex'}:
+            raise ValueError('Unknown mode')
+        level = classify(objective) if mode == 'auto' else mode
+        if prepared_plan is not None:
+            if not isinstance(prepared_plan, dict) or set(prepared_plan) != {'summary','steps','acceptance','complexity'}:
+                raise ValueError('prepared_plan needs summary, steps, acceptance and complexity')
+            if not isinstance(prepared_plan['summary'], str) or not isinstance(prepared_plan['steps'], list) or not isinstance(prepared_plan['acceptance'], list):
+                raise ValueError('Invalid prepared_plan')
+            if not prepared_plan['steps'] or not prepared_plan['acceptance'] or not all(isinstance(x,str) for x in prepared_plan['steps'] + prepared_plan['acceptance']):
+                raise ValueError('Plan needs concrete steps and acceptance criteria')
+            if len(encode(prepared_plan)) > 12000 or prepared_plan['complexity'] not in {'small','standard','complex'}:
+                raise ValueError('Invalid plan size/complexity')
+            levels = ['small','standard','complex']
+            level = levels[max(levels.index(level), levels.index(prepared_plan['complexity']))]
+        policy = self.config['auto'][level]
+        cap = policy['max_calls'] if max_calls is None else max_calls
+        if not isinstance(cap, int) or not 1 <= cap <= 50:
+            raise ValueError('max_calls must be 1–50')
+        flow = self.store.create(project, objective, request_key, level, cap, policy['max_repairs'])
+        if handoff is not None and flow['calls'] == 0 and flow['handoff'] == '{}':
+            self.store.update(flow['id'], handoff=encode(handoff))
+        if prepared_plan is not None and flow['calls'] == 0 and flow['phase'] == 'plan':
+            self.store.update(flow['id'], phase='implement', plan=encode(prepared_plan), leader='external-antigravity')
+            self.store.event(flow['id'], 'prepared_plan_reused', {'saved_planner_call': True})
+        if launch:
+            start_daemon(self.store.home)
+        return self.status(flow['id'])
+
+    def status(self, workflow_id):
+        flow = self.store.workflow(workflow_id)
+        for key in ['plan', 'review', 'verification', 'handoff']:
+            flow[key] = json.loads(flow[key])
+        flow['attempts'] = self.store.all('SELECT id,provider,phase,generation,status,pid,artifact,created,ended,error,usage FROM attempts WHERE workflow_id=? ORDER BY created', (workflow_id,))
+        for attempt in flow['attempts']:
+            attempt['usage'] = json.loads(attempt['usage'])
+        flow['events'] = self.store.all('SELECT kind,data,created FROM events WHERE workflow_id=? ORDER BY id DESC LIMIT 20', (workflow_id,))
+        for event in flow['events']:
+            event['data'] = json.loads(event['data'])
+        flow['daemon'] = daemon_status(self.store.home)
+        flow['workspace_retired'] = bool(flow.get('delivery') and not Path(flow.get('workspace') or '').exists())
+        return flow
+
+    def brief(self, workflow_id):
+        state = self.status(workflow_id)
+        result = {key:state[key] for key in ['id','status','phase','leader','complexity','calls','max_calls','next_run','workspace','delivery','workspace_retired','daemon']}
+        result['summary'] = state['summary'][:1500]
+        result['error'] = state['error'][-1500:]
+        result['checks'] = [{'command':check['command'],'exit_code':check['exit_code']} for check in state['verification'].get('checks',[])]
+        result['reviews'] = [{'provider':review['provider'],'verdict':review['report']['verdict'],
+                              'findings':review['report']['findings'][:5]} for review in state['review'].get('reviews',[])]
+        result['context_chars_by_call'] = [attempt['usage'].get('context_chars') for attempt in state['attempts'] if attempt['phase'] != 'verify']
+        result['details'] = 'Request workflow_status with include_details=true only if needed.'
+        return result
+
+    def retry(self, workflow_id, extra_calls=0, launch=True):
+        if not isinstance(extra_calls, int) or not 0 <= extra_calls <= 20:
+            raise ValueError('extra_calls must be 0–20; zero preserves the existing cap')
+        flow = self.store.workflow(workflow_id)
+        with self.store.connection() as db:
+            db.execute('BEGIN IMMEDIATE')
+            current = db.execute('SELECT * FROM workflows WHERE id=?', (workflow_id,)).fetchone()
+            if current['status'] not in {'blocked', 'cancelled', 'needs_review'}:
+                raise ValueError('Only blocked/cancelled/needs_review workflows can be retried')
+            active = db.execute("SELECT id FROM workflows WHERE project_id=? AND id != ? AND status IN ('queued','running','waiting','recovering')",
+                                (flow['project_id'], workflow_id)).fetchone()
+            if active:
+                raise ValueError('Another workflow is active for this project')
+            attempts = db.execute('SELECT pid FROM attempts WHERE workflow_id=? ORDER BY created DESC LIMIT 1', (workflow_id,)).fetchall()
+            if any(pid_alive(row['pid']) for row in attempts):
+                raise ValueError('Previous process may still exist. Wait for it to stop before retrying.')
+            new_cap = current['max_calls'] + extra_calls
+            if current['phase'] != 'verify' and current['calls'] >= new_cap:
+                raise ValueError('Call cap exhausted; explicitly grant extra_calls to continue')
+            phase = 'verify' if current['phase'] == 'review' else current['phase']
+            review = '{}' if phase == 'verify' else current['review']
+            db.execute("UPDATE workflows SET status='queued',generation=generation+1,next_run=0,error='',max_calls=?,phase=?,review=?,created=?,updated=? WHERE id=?",
+                       (new_cap, phase, review, time.time(), time.time(), workflow_id))
+            self.store._event(db, workflow_id, 'retry_requested', {'extra_calls': extra_calls})
+        if launch:
+            start_daemon(self.store.home)
+        return self.status(workflow_id)
+
+    def recover(self, project):
+        row = self.store.project(project)
+        memories=self.store.all('SELECT name,content,updated FROM memories WHERE project_id=? ORDER BY updated DESC LIMIT 8',(row['id'],))
+        for memory in memories:
+            if len(memory['content'])>1800: memory['content']=memory['content'][:1800]+' [truncated]'
+        flows=self.store.all('SELECT id,status,phase,leader,complexity,calls,max_calls,next_run,workspace,delivery,summary,error FROM workflows WHERE project_id=? ORDER BY updated DESC LIMIT 5',(row['id'],))
+        for flow in flows:
+            flow['summary']=flow['summary'][:1000]; flow['error']=flow['error'][-1000:]
+        return {'project': row, 'memories': memories,
+                'workflows': flows,
+                'provider_health': self.store.all('SELECT * FROM health'), 'daemon': daemon_status(self.store.home),
+                'instruction': 'Do not duplicate active workflows. Completed work is in its delivery ZIP or isolated worktree, not merged into the source. Read review and verification evidence. If all leaders have quota errors, the daemon waits without AI calls.'}

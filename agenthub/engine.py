@@ -1,0 +1,297 @@
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+import uuid
+
+from .adapters import Invoker, Result, read_tail
+from .platforms import FileLock, AlreadyRunning, pid_alive, spawn, stop_tree, resolve_command
+from .policy import choose, failure, reset_time
+from .store import ACTIVE, encode
+from . import workspace as ws
+
+
+class Engine:
+    def __init__(self, store, config, invoker=None):
+        self.store, self.config = store, config
+        self.invoker = invoker or Invoker(config)
+        self.last_cleanup = time.time()
+
+    def recover(self):
+        for flow in self.store.all("SELECT * FROM workflows WHERE status IN ('running','recovering')"):
+            attempts = self.store.all("SELECT * FROM attempts WHERE workflow_id=? AND status IN ('running','orphan')", (flow['id'],))
+            alive = [a for a in attempts if pid_alive(a['pid'])]
+            if alive:
+                self.store.update(flow['id'], status='recovering', error='Waiting for old process to exit; duplicate writers are forbidden')
+                continue
+            with self.store.connection() as db:
+                db.execute("UPDATE attempts SET status='interrupted',ended=? WHERE workflow_id=? AND status IN ('running','orphan')",
+                           (time.time(), flow['id']))
+            self.store.update(flow['id'], status='queued', generation=flow['generation'] + 1,
+                              error='Recovered interrupted step; inspect checkpoint and continue')
+            self.store.event(flow['id'], 'recovered', {'phase': flow['phase']})
+
+    def tick(self):
+        self.recover()
+        flow = self.store.one("SELECT * FROM workflows WHERE status IN ('queued','waiting') AND next_run <= ? ORDER BY updated LIMIT 1", (time.time(),))
+        if not flow:
+            return False
+        try:
+            self.step(flow)
+        except Exception as error:
+            # Retain the phase/artifacts for explicit retry, never silently discard the task.
+            self.store.update(flow['id'], status='blocked', error=str(error))
+            self.store.event(flow['id'], 'blocked', {'reason': str(error)})
+        self.maybe_cleanup(force=self.store.workflow(flow['id'])['status'] == 'completed')
+        return True
+
+    def maybe_cleanup(self, force=False):
+        if not force and time.time()-self.last_cleanup < self.config['retention']['sweep_interval_seconds']:
+            return
+        from .retention import sweep
+        try:
+            sweep(self.store,self.config)
+        except Exception as error:
+            self.store.event(None,'cleanup_error',{'reason':str(error)})
+        self.last_cleanup = time.time()
+
+    def _attempt(self, flow, provider, phase, folder):
+        attempt_id = uuid.uuid4().hex[:12]
+        with self.store.connection() as db:
+            db.execute('''INSERT INTO attempts(id,workflow_id,provider,phase,generation,status,artifact,created)
+                VALUES(?,?,?,?,?,?,?,?)''', (attempt_id, flow['id'], provider, phase,
+                flow['generation'], 'running', str(folder), time.time()))
+        return attempt_id
+
+    def _pid(self, attempt_id, pid):
+        with self.store.connection() as db:
+            db.execute('UPDATE attempts SET pid=? WHERE id=?', (pid, attempt_id))
+
+    def _finish_attempt(self, attempt_id, result):
+        with self.store.connection() as db:
+            db.execute('UPDATE attempts SET status=?,ended=?,outcome=?,error=?,usage=? WHERE id=?',
+                       ('completed' if result.report else 'failed', time.time(),
+                        encode(result.report) if result.report else None, result.error[-6000:], encode(result.usage), attempt_id))
+
+    def _cancelled(self, workflow_id, generation):
+        row = self.store.workflow(workflow_id)
+        return (row['status'] == 'cancelled' or row['generation'] != generation or
+                (self.store.home / 'stop').exists())
+
+    def _wait_or_block(self, flow, role, priority, excluded):
+        installed = []
+        for provider in priority:
+            entry = self.config['providers'].get(provider, {})
+            if provider in excluded or role not in entry.get('roles', []) or not entry.get('enabled'):
+                continue
+            try:
+                resolve_command(entry['command'])
+                installed.append(provider)
+            except (OSError, ValueError):
+                pass
+        health = {h['provider']: h for h in self.store.all('SELECT * FROM health')}
+        cooldowns = [health[p]['until'] for p in installed if p in health and
+                     health[p]['reason'].startswith(('quota:', 'temporary:')) and health[p]['until'] > time.time()]
+        if cooldowns:
+            self.store.update(flow['id'], status='waiting', next_run=min(cooldowns),
+                              error='Available providers are cooling down; no AI calls before next_run')
+        else:
+            reason = 'No eligible CLI available for ' + role + '. Run doctor/configure providers.'
+            if role == 'review' and excluded:
+                self.store.update(flow['id'], status='needs_review', error=reason)
+            else:
+                self.store.update(flow['id'], status='blocked', error=reason)
+        self.store.event(flow['id'], 'routing_unavailable', {'role': role, 'installed': installed})
+
+    def step(self, flow):
+        if time.time() - flow['created'] > self.config['max_workflow_age_hours'] * 3600:
+            self.store.update(flow['id'], status='blocked', error='Workflow time budget exhausted; progress retained')
+            return
+        project = self.store.project(flow['project_id'])
+        if isinstance(self.invoker, Invoker):
+            from .security import preflight
+            preflight(self.config, bool(project.get('network', False)))
+        path, base = ws.prepare(self.store, flow, project)
+        self.store.update(flow['id'], workspace=path, base_commit=base)
+        flow.update(workspace=path, base_commit=base)
+        if flow['phase'] == 'review':
+            verified = json.loads(flow['verification']).get('fingerprint_after')
+            if verified != ws.fingerprint(path, self.store):
+                self.store.update(flow['id'], status='queued', phase='verify', review='{}',
+                                  error='Worktree changed since verification; rerun checks before review')
+                self.store.event(flow['id'], 'verification_invalidated', {})
+                return
+        if flow['phase'] == 'verify':
+            self.verify(flow, project)
+            return
+        if flow['calls'] >= flow['max_calls']:
+            self.store.update(flow['id'], status='blocked', error='AI call budget exhausted; progress retained')
+            return
+        role = flow['phase']
+        excluded = []
+        if role == 'plan':
+            priority = self.config['leader_priority']
+        elif role == 'implement':
+            priority = self.config['worker_priority']
+        else:
+            priority = list(dict.fromkeys(([flow['leader']] if flow['leader'] else []) + self.config['reviewer_priority']))
+            reviews = json.loads(flow['review']).get('reviews', [])
+            excluded = [r['provider'] for r in reviews]
+            worker = self.store.one("SELECT provider FROM attempts WHERE workflow_id=? AND phase='implement' AND status='completed' ORDER BY created DESC LIMIT 1", (flow['id'],))
+            # Prefer another model family, but don't manufacture independence if only one exists.
+            if worker and not reviews:
+                other = choose(self.config, self.store, role, priority, excluded=[worker['provider']])
+                if other:
+                    excluded.append(worker['provider'])
+        provider = choose(self.config, self.store, role, priority, excluded=excluded)
+        if not provider:
+            self._wait_or_block(flow, role, priority, excluded)
+            return
+        generation = flow['generation'] + 1
+        old_leader = flow['leader']
+        leader = provider if role in {'plan', 'review'} else old_leader
+        if not self.store.update(flow['id'], flow['generation'], status='running', generation=generation, calls=flow['calls'] + 1,
+                                 leader=leader, next_run=0):
+            return
+        flow.update(status='running', generation=generation, calls=flow['calls'] + 1, leader=leader)
+        if role in {'plan', 'review'} and old_leader and old_leader != provider:
+            self.store.event(flow['id'], 'leader_changed', {'from': old_leader, 'to': provider, 'generation': generation})
+        self.store.event(flow['id'], 'agent_started', {'provider': provider, 'role': role, 'call': flow['calls']})
+        folder = self.store.home / 'runs' / flow['id'] / f"{flow['calls']:02d}-{role}-{provider}"
+        attempt_id = self._attempt(flow, provider, role, folder)
+        context_limit = min(self.config['max_context_chars'], 14000) if provider in {'antigravity','copilot'} else self.config['max_context_chars']
+        pack = ws.build_pack(self.store, flow, project, role, context_limit)
+        context = pack.pop('text')
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / 'context-pack.json').write_text(encode(pack), encoding='utf-8')
+        self.store.event(flow['id'], 'context_pack', pack)
+        before = ws.fingerprint(path, self.store)
+        result = self.invoker.run(provider, role, context, path, folder, bool(project['network']),
+                                  lambda pid: self._pid(attempt_id, pid),
+                                  lambda: self._cancelled(flow['id'], generation))
+        result.usage.setdefault('context_chars', len(context))
+        result.usage.setdefault('context_files', len(pack['files']))
+        readonly_changed = role in {'plan', 'review'} and ws.fingerprint(path, self.store) != before
+        if readonly_changed:
+            result = Result(error='Read-only role changed the worktree; inspect artifacts before continuing')
+        self._finish_attempt(attempt_id, result)
+        if self._cancelled(flow['id'], generation):
+            self.store.event(flow['id'], 'late_result_ignored', {'attempt': attempt_id, 'generation': generation})
+            return
+        if readonly_changed:
+            self.store.update(flow['id'], generation, status='blocked', error=result.error)
+            return
+        if result.unsafe_to_continue:
+            self.store.update(flow['id'], generation, status='blocked', error='Old process could not be stopped; no failover permitted')
+            return
+        if not result.report:
+            category = failure(result.error)
+            until = reset_time(result.error) or time.time() + (
+                self.config['quota_cooldown_seconds'] if category == 'quota' else
+                self.config['temporary_cooldown_seconds'] if category == 'temporary' else 86400)
+            self.store.health(provider, until, category + ': ' + result.error[-1000:])
+            self.store.update(flow['id'], generation, status='queued', error=result.error[-6000:])
+            self.store.event(flow['id'], 'agent_failed', {'provider': provider, 'role': role, 'category': category, 'cooldown_until': until})
+            # Next deterministic tick elects another available provider in this exact phase.
+            return
+        self.store.health(provider, 0, '')
+        report = result.report
+        self.store.remember(project['id'], 'checkpoint', role + ': ' + report['summary'][:3500])
+        if role == 'plan':
+            complexity = 'complex' if report['complexity'] == 'complex' else flow['complexity']
+            self.store.update(flow['id'], generation, status='queued', phase='implement',
+                              plan=encode(report), complexity=complexity, error='', summary=report['summary'])
+        elif role == 'implement':
+            self.store.update(flow['id'], generation, status='queued', phase='verify',
+                              summary=report['summary'], error='', review=encode({'previous_findings': json.loads(flow['review']).get('findings', [])}))
+        else:
+            if report['verdict'] not in {'approve', 'changes_requested'}:
+                self.store.update(flow['id'], generation, status='blocked', error='Reviewer returned no usable verdict')
+                return
+            reviews = json.loads(flow['review']).get('reviews', [])
+            reviews.append({'provider': provider, 'fingerprint': before, 'report': report})
+            review = {'reviews': reviews, 'findings': report['findings']}
+            if report['verdict'] == 'changes_requested' or report['findings']:
+                self.repair(flow, 'Reviewer requested changes', review)
+                return
+            required = self.config['auto'][flow['complexity']]['reviewers']
+            if len(reviews) < required:
+                self.store.update(flow['id'], generation, status='queued', phase='review', review=encode(review), error='')
+            else:
+                self.store.update(flow['id'], generation, status='completed', review=encode(review), error='', summary=report['summary'])
+                self.store.event(flow['id'], 'completed', {'reviews': len(reviews), 'calls': flow['calls']})
+
+    def repair(self, flow, reason, review=None):
+        fields = {'review': encode(review)} if review is not None else {}
+        if flow['repairs'] >= flow['max_repairs']:
+            self.store.update(flow['id'], status='needs_review', error=reason + '; repair budget exhausted', **fields)
+        else:
+            self.store.update(flow['id'], status='queued', phase='implement', repairs=flow['repairs'] + 1, error=reason, **fields)
+        self.store.event(flow['id'], 'repair_requested', {'reason': reason})
+
+    def verify(self, flow, project):
+        generation = flow['generation'] + 1
+        if not self.store.update(flow['id'], flow['generation'], status='running', generation=generation):
+            return
+        flow['generation'] = generation
+        before = ws.fingerprint(flow['workspace'], self.store)
+        folder = self.store.home / 'runs' / flow['id'] / f"verify-{generation}"
+        folder.mkdir(parents=True, exist_ok=True)
+        attempt_id = self._attempt(flow, 'local', 'verify', folder)
+        results = []
+        for index, command in enumerate(json.loads(project['verify'])):
+            args = [sys.executable if value == '{python}' else value for value in command]
+            process = None
+            output = folder / f'{index}.log'
+            try:
+                args = resolve_command(args)
+                with output.open('wb') as log:
+                    process = spawn(args, cwd=flow['workspace'], stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+                self._pid(attempt_id, process.pid)
+                deadline = time.monotonic() + self.config['verify_timeout_seconds']
+                while process.poll() is None:
+                    if self._cancelled(flow['id'], generation):
+                        stop_tree(process)
+                        self._finish_attempt(attempt_id, Result(error='cancelled'))
+                        return
+                    if time.monotonic() > deadline:
+                        if not stop_tree(process):
+                            raise ValueError('Verification process could not be stopped')
+                        break
+                    time.sleep(0.1)
+                code = process.wait()
+                results.append({'command': command, 'exit_code': code, 'output': read_tail(output, 6000)})
+            finally:
+                if process is not None and process.poll() is None:
+                    stop_tree(process)
+        evidence = {'fingerprint_before': before, 'fingerprint_after': ws.fingerprint(flow['workspace'], self.store), 'checks': results}
+        passed = results and all(item['exit_code'] == 0 for item in results)
+        self._finish_attempt(attempt_id, Result(report={'verified': bool(passed)}))
+        if self._cancelled(flow['id'], generation):
+            return
+        if evidence['fingerprint_after'] != before:
+            self.store.update(flow['id'], generation, status='blocked', verification=encode(evidence),
+                              error='Verification command modified source files; review the worktree')
+            return
+        self.store.update(flow['id'], generation, verification=encode(evidence))
+        self.store.event(flow['id'], 'verification', {'passed': bool(passed), 'fingerprint': before})
+        if not passed:
+            self.repair(flow, 'Verification failed; fix the recorded test output')
+        elif self.config['auto'][flow['complexity']]['reviewers'] == 0:
+            self.store.update(flow['id'], generation, status='completed', error='',
+                              summary='Small task completed; configured verification passed; AI review skipped by Auto')
+        else:
+            self.store.update(flow['id'], generation, status='queued', phase='review', error='')
+
+    def serve(self):
+        with FileLock(self.store.home / 'daemon.lock'):
+            (self.store.home / 'daemon.pid').write_text(str(os.getpid()),encoding='utf-8')
+            self.recover()
+            (self.store.home / 'stop').unlink(missing_ok=True)
+            while not (self.store.home / 'stop').exists():
+                (self.store.home / 'heartbeat').write_text(str(time.time()), encoding='utf-8')
+                if not self.tick():
+                    self.maybe_cleanup()
+                    time.sleep(self.config['poll_seconds'])

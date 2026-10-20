@@ -1,4 +1,34 @@
-# Multi Agents V2: terminal guide
+# Multi Agents V2: setup and IDE chat
+
+## Giao việc trong chat, ít dùng CLI
+
+1. Chạy `setup.ps1` một lần; chọn launcher và cài @hub vào VS Code Copilot Chat.
+2. Trong terminal của source được phép, chạy `ma init`. Xác nhận source/synthetic/
+   không gọi API ứng dụng cho project này. Init giữ scope ngoài repo, không thay
+   đổi yêu cầu cách ly OS đã chọn. Cần Git baseline sạch và dependencies đã chuẩn bị.
+3. Init nhận diện verifier và SDK Android khi có, lưu riêng biến SDK cho worker và
+   verifier trong worktree. Chạy baseline trong worktree riêng và kiểm tra stdio MCP.
+   Test lỗi thì dừng tại đây, chưa tốn lượt gọi AI; log ở home của Hub.
+   Với Codex Windows, init còn chạy một lệnh in chuỗi cố định trong sandbox, không
+   gọi model. Executor lỗi thì yêu cầu sửa setup sandbox trước; worker cũng kiểm tra
+   lại trước khi tiêu call. Không tự chuyển sandbox, bật bypass hoặc cấp thêm calls.
+4. Reload VS Code sau lần cài extension, mở Copilot Chat và nhập `@hub /agents`.
+   Giao việc bằng `@hub Thêm tài liệu hướng dẫn chạy dự án, kiểm tra thay đổi`.
+   Participant sticky nên thường không phải gõ lại @hub ở lượt kế tiếp.
+
+Setup cũ có thể cài bridge bằng `ma integrations chat --apply`. Extension chỉ dùng
+Node runtime có sẵn trong VS Code; người dùng không cần npm install hay Python package.
+Nó gọi Hub qua stdio, không đọc source/history chat hoặc gọi model của chat IDE.
+Hub vẫn dùng CLI provider đã đăng nhập và quota của chính provider đó. Extension chưa
+được kiểm chứng trong UI Copilot khi tài khoản hết quota; không cam kết vượt cơ chế
+giới hạn của IDE. Khung chat riêng của Antigravity chưa có API bridge được xác minh.
+
+Lệnh chat: `@hub /status`, `/watch`, `/agents`, `/retry`, `/cancel`. Có thể thêm ID
+workflow sau lệnh; ID phải thuộc project đang mở. Retry giữ nguyên call cap. Nút dừng
+chat chỉ đóng theo dõi; `/cancel` mới yêu cầu dừng workflow. Workflow đang waiting
+quota sẽ trả checkpoint và thời gian thử lại, không giữ chat/poll model liên tục.
+Prompt mới khi project đang có workflow chưa kết thúc sẽ không tạo task trùng.
+Những câu hỏi tiếp theo được coi là task mới, không tự gửi toàn bộ lịch sử chat.
 
 ## Setup
 
@@ -34,7 +64,10 @@ any rollback needing manual review is stated. A changed user-owned entry is pres
 After installing the user PATH entry, open a new terminal. `ma --help` works anywhere;
 `ma` opens the terminal menu. The launcher pins the chosen interpreter and home.
 An existing different `ma` command causes refusal, not an overwrite. The V1 `hub`
-launchers remain. Percent signs in CMD launcher installation paths are explicitly
+launchers remain callable by explicit source path. Installing the owned V2 launcher
+backs up the user PATH and removes this same checkout's legacy PATH entry, keeping
+one pinned `ma` launcher first. Other tool paths are retained; existing terminals
+must be reopened to receive the updated user PATH. Percent signs in CMD launcher installation paths are explicitly
 unsupported; Unicode and spaces are supported.
 
 ## Discovery and authentication
@@ -62,6 +95,32 @@ probe errors and an unrecognized adapter. UNKNOWN is not proof of a failed login
 Add `--json` for full diagnostics;
 `--check` still caches all details. READY does not confirm quota or a live model call.
 
+On Windows, Antigravity discovery also checks `%LOCALAPPDATA%\agy\bin\agy.exe`,
+the official installer location, even if the current terminal still has its old PATH.
+To use `agy` directly after installation, reopen the terminal or temporarily add that
+directory to `$env:Path`. IDE login alone is not CLI authentication evidence; the
+current Antigravity adapter keeps authentication UNKNOWN when it cannot verify it.
+
+After you personally receive a successful AI reply, record that report with:
+
+```powershell
+ma agents confirm antigravity --worked
+ma agents list --check
+# To remove the report:
+ma agents confirm antigravity --revoke
+```
+
+This makes the state READY, with a short operator-confirmed reason and no daily
+expiry. CLI/protocol checks must pass first. Authentication remains UNKNOWN unless
+an official auth probe verifies it, and live_verified stays false: this records your
+report, not an automatic model test. No prompt is sent. The external home stores
+only the confirmation time and a command/binary/model fingerprint, without response payloads
+or credentials. Changing the binary, command or model invalidates the report;
+missing CLI, failed probes, lost protocol or negative auth evidence take priority.
+Existing expiring reports keep their expiry until explicitly confirmed again.
+Terminal lists, setup and MCP read the same reports. These reports do not alter
+workflow security attestations, permissions, provider health or execution budgets.
+
 Without `--check`, discovery only resolves executable paths. Checks run bounded
 official version/help/auth-status commands in a temporary working directory, never
 an AI prompt. Raw auth output/account identifiers are discarded. Credential files,
@@ -72,7 +131,7 @@ cookies, IDE login state and provider history are not inspected.
 | NOT_INSTALLED | No resolvable execution command |
 | INSTALLED | Executable found; no successful authentication evidence yet |
 | AUTHENTICATED | Official auth probe confirms login; adapter protocol not detected |
-| READY | Login and expected adapter protocol detected; quota/live execution unverified |
+| READY | Auth probe succeeds or operator confirms an AI reply with a checked adapter; see confirmation_source; quota/live execution unverified |
 | UNKNOWN | Authentication cannot be verified noninteractively with the implemented probe |
 | UNAVAILABLE | Safe probe failed or timed out |
 
@@ -129,16 +188,18 @@ ma context
 ma projects list
 ```
 
-Init resolves Git root from subfolders, identifies language/framework/dependency
-metadata and bounded root documents, stores hashes/version locally, and does not
-execute project build/test scripts. Facts and AI inference are separate. Context
+`ma init --register-only` (or `--json`, or redirected/noninteractive output) resolves
+Git root, identifies language/framework/dependency metadata and bounded documents,
+stores hashes/version locally, and does not execute project build/test scripts.
+Interactive `ma init` additionally confirms scope and runs baseline checks as above.
+Facts and AI inference are separate. Context
 refreshes only when relevant hashes change; `ma context` reports stale status.
 Context Packs reuse shared metadata and selected excerpts, not the full codebase.
 
 No .ma/.ai metadata, AGENTS.md, .gitignore, MCP file, hooks, Git config edits or temp
 files are created by init inside the repository. A clean Git status stays clean.
 Worktrees used for coding live under the external Hub home. Git's own worktree
-administrative records are necessary during coding, not during init.
+administrative records are necessary during coding and interactive baseline checks.
 
 Command detection is heuristic. If a command cannot be selected, init still creates
 an unconfigured registration and dispatch is blocked. Fill missing commands explicitly:
@@ -146,6 +207,44 @@ an unconfigured registration and dispatch is blocked. Fill missing commands expl
 ```powershell
 ma init --verify '[["dotnet","build","App/App.csproj","--no-restore"]]'
 ```
+
+For one command, avoid JSON quoting entirely with `--verify-command`, placed last:
+
+```powershell
+ma init --verify-command dotnet build App/App.csproj --no-restore
+# Android/Gradle example, if this task exists in the project:
+ma init --verify-command cmd.exe /d /c gradlew.bat --offline testDebugUnitTest
+```
+
+Register-only initialization records the command without executing it; interactive
+initialization runs the baseline before reporting PASS. Gradle offline mode requires cached
+dependencies; a missing cache is a failed prerequisite, not a passing test. Existing
+verification settings remain protected from accidental replacement.
+
+V2 also detects Gradle wrappers in nested projects, including untracked files in a
+new Git repository. Detection uses filenames only: one wrapper with Gradle project
+markers and unit-test sources produces an offline `test` command using a relative
+`--project-dir`. Multiple candidate builds or missing test sources require an
+explicit command. Root and nested paths with spaces are supported. Initialization
+checks named Gradle wrapper/project paths before saving. Interactive init may repair
+a missing stored Gradle wrapper path only when one valid verifier is detected, with
+backup; valid custom commands remain unchanged. The register-only mode never executes Gradle.
+
+To intentionally repair a previously stored verifier, preserve the project/history
+and save the previous command with:
+
+```powershell
+ma init --replace-verify --verify-command cmd.exe /d /c SkillNovaApp\gradlew.bat --project-dir SkillNovaApp --offline testDebugUnitTest
+# Or redetect a single supported build:
+ma init --replace-verify
+```
+
+Replacement is blocked while any workflow is active. Cached context also receives
+the updated verifier. `Tests configured: yes | Tests run: no` means the command has
+been saved, not passed. Offline errors about missing cached JUnit/coroutines or
+other artifacts mean dependencies must be prepared before verification can pass;
+Hub does not silently switch to online mode, change network/security permissions,
+or count a failed build as a successful check.
 
 This example verifies compilation, not behavior/unit tests. Choose actual test
 commands for your project. An existing nonempty command list is not overwritten by
@@ -203,10 +302,15 @@ Without `--apply`, these commands only preview. The operator chooses each client
 there is no mandatory default. JSON clients receive only an owned `multi_agents`
 stdio entry in their official user configuration, preserving other servers/settings
 and backing up existing files. Different entries with the same ID are refused.
+An empty/whitespace-only configuration is treated as a new document and still
+backed up; UTF-8 BOM input is supported. Invalid JSON or a non-object server map is
+preserved and rejected. The installer never overwrites malformed configuration.
 Codex is registered with its official `codex mcp add` CLI and a backup of config.toml;
 non-MCP settings are not parsed or printed. Client-owned credentials are not copied
 into Hub JSON. Client configuration may need a reload/refresh and tool trust approval.
-No client was live-tested; generated configuration is not a connectivity claim.
+Generated configuration is not proof of an active IDE connection. Refresh the MCP
+manager and check its tool list. Chat-driven tool calls also need the chat model's
+quota; `ma run` submits workflows directly and is not an MCP installation command.
 
 User config targets: Antigravity `~/.gemini/config/mcp_config.json`; VS Code
 `%APPDATA%/Code/User/mcp.json`; Copilot `$COPILOT_HOME/mcp-config.json` or

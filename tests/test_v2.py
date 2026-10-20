@@ -22,7 +22,125 @@ from agenthub.lifecycle import install_command, uninstall, path_entries
 from agenthub.wizard import checkbox, configure
 
 
+class ConfirmationTests(unittest.TestCase):
+    def setUp(self):
+        from agenthub.api import Hub
+        from agenthub.settings import atomic_json
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.hub = Hub(Path(self.temp.name) / 'home')
+        self.binary = Path(self.temp.name) / 'fake.exe'
+        self.binary.write_bytes(b'synthetic CLI; never executed')
+        self.hub.config['providers']['antigravity']['command'] = [str(self.binary)]
+        atomic_json(self.hub.store.home / 'config.json', self.hub.config)
+
+    def runner(self, command):
+        self.assertIn(command[-1], ('--version', '--help', 'status'))
+        if command[-1] == 'status':
+            return 0, '{"loggedIn":true}'
+        return 0, '1.4.2' if command[-1] == '--version' else '--output-format json'
+
+    def record(self):
+        from agenthub.confirmations import confirm
+        return confirm(self.hub, 'antigravity', worked=True, runner=self.runner)
+
+    def row(self, check=False):
+        from agenthub.registry import discover
+        return next(row for row in discover(self.hub.config, check, runner=self.runner, home=self.hub.store.home) if row['agent'] == 'antigravity')
+
+    def test_operator_report_survives_reload_without_claiming_verified_auth(self):
+        from agenthub.api import Hub
+        from agenthub.cli import agent_reason
+        self.assertEqual(self.record()['model_calls'], 0)
+        self.hub = Hub(self.hub.store.home)
+        for check in (False, True):
+            row = self.row(check)
+            self.assertEqual(row['state'], 'READY')
+            self.assertEqual(row['authentication'], 'UNKNOWN')
+            self.assertFalse(row['live_verified'])
+            self.assertEqual(agent_reason(row), 'Bạn xác nhận chạy AI')
+        record = json.loads((self.hub.store.home / 'agent-confirmations.json').read_text())['antigravity']
+        self.assertEqual(set(record), {'source', 'confirmed_at', 'fingerprint'})
+
+    def test_revoke_removes_report_and_keeps_security_config_unchanged(self):
+        from agenthub.confirmations import confirm
+        before = (self.hub.store.home / 'config.json').read_bytes()
+        self.record()
+        confirm(self.hub, 'antigravity', revoke=True)
+        self.assertEqual(self.row(True)['state'], 'UNKNOWN')
+        self.assertEqual((self.hub.store.home / 'config.json').read_bytes(), before)
+
+    def test_persistent_reports_and_legacy_expiry_or_malformed_records(self):
+        from agenthub.confirmations import apply, read
+        self.record()
+        record = read(self.hub.store.home)['antigravity']
+        row = self.row(True)
+        clean = dict(row, state='UNKNOWN', operator_confirmed=False)
+        self.assertEqual(apply([clean], self.hub.store.home, record['confirmed_at'] + 30 * 86400)[0]['state'], 'READY')
+        clean = dict(row, state='UNKNOWN', operator_confirmed=False)
+        self.assertFalse(apply([clean], self.hub.store.home, record['confirmed_at'] - 1)[0]['operator_confirmed'])
+        from agenthub.settings import atomic_json
+        for end in ('forever', float('nan'), record['confirmed_at'] - 1):
+            atomic_json(self.hub.store.home / 'agent-confirmations.json', {'antigravity': {**record, 'expires_at': end}})
+            self.assertEqual(self.row(True)['state'], 'UNKNOWN')
+
+    def test_binary_command_or_model_change_invalidates_report(self):
+        from agenthub.registry import discover
+        self.record()
+        self.binary.write_bytes(b'new synthetic CLI version')
+        self.assertEqual(self.row(True)['state'], 'UNKNOWN')
+        self.record()
+        for entry in ({'model_policy': 'AUTO'}, {'command': [str(self.binary), '--fixture']}):
+            config = json.loads(json.dumps(self.hub.config))
+            config['providers']['antigravity'].update(entry)
+            row = next(r for r in discover(config, runner=self.runner, home=self.hub.store.home) if r['agent'] == 'antigravity')
+            self.assertNotEqual(row['state'], 'READY')
+
+    def test_failed_probe_or_protocol_and_missing_cli_override_manual_report(self):
+        from agenthub.confirmations import apply
+        self.record()
+        base = self.row(True)
+        for changes in ({'state': 'NOT_INSTALLED'}, {'state': 'UNAVAILABLE'},
+                        {'authentication': 'NOT_AUTHENTICATED'},
+                        {'adapter_protocol_detected': False, 'version': 'Unknown'}):
+            row = dict(base, state='UNKNOWN', operator_confirmed=False)
+            row.update(changes)
+            self.assertFalse(apply([row], self.hub.store.home)[0]['operator_confirmed'])
+
+    def test_no_report_without_explicit_worked_flag_or_valid_protocol(self):
+        from agenthub.confirmations import confirm
+        with self.assertRaises(ValueError):
+            confirm(self.hub, 'antigravity', runner=lambda _: self.fail('Must not probe without explicit report'))
+        with self.assertRaises(ValueError):
+            confirm(self.hub, 'antigravity', worked=True, runner=lambda _: (1, 'private diagnostic'))
+        self.assertFalse((self.hub.store.home / 'agent-confirmations.json').exists())
+
+    def test_cli_confirm_command_and_mcp_use_home_scoped_reports(self):
+        from agenthub.cli import main
+        from agenthub.registry import discover_agent
+        row = discover_agent('antigravity', self.hub.config['providers']['antigravity'], True, self.runner)
+        with patch('agenthub.registry.discover_agent', return_value=row), patch('sys.stdout', new_callable=io.StringIO) as stdout:
+            main(['--home', str(self.hub.store.home), 'agents', 'confirm', 'antigravity', '--worked'])
+        self.assertIn('READY', stdout.getvalue())
+        request = {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call', 'params': {'name': 'get_agent_status', 'arguments': {'agent': 'antigravity'}}}
+        from agenthub.mcp import serve
+        with patch('sys.stdin', io.StringIO(json.dumps(request) + '\n')), patch('sys.stdout', new_callable=io.StringIO) as stdout:
+            serve(self.hub.store.home)
+        self.assertIn('READY', stdout.getvalue())
+        with tempfile.TemporaryDirectory() as other:
+            from agenthub.confirmations import apply
+            self.assertEqual(apply([dict(row, state='UNKNOWN')], other)[0]['state'], 'UNKNOWN')
+
+
 class PresentationTests(unittest.TestCase):
+    def test_verify_command_preserves_flags_and_disallows_json_combination(self):
+        from agenthub.cli import parser
+        command = ['cmd.exe', '/d', '/c', 'gradlew.bat', '--offline', 'testDebugUnitTest']
+        args = parser().parse_args(['init', '--verify-command', *command])
+        self.assertEqual(args.verify_command, command)
+        with patch('sys.stderr', new_callable=io.StringIO), self.assertRaises(SystemExit):
+            parser().parse_args(['init', '--verify', '[]', '--verify-command', *command])
+
     def test_nested_context_is_bounded_without_dumping_source_documents(self):
         from agenthub.presentation import compact
         value = {'root': 'synthetic/repo', 'documents': {'README.md': 'SOURCE MARKER'},
@@ -136,6 +254,19 @@ class AgentListTests(unittest.TestCase):
 
 
 class RegistryTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == 'nt', 'Windows installation discovery')
+    def test_antigravity_user_install_discovered_without_updated_path(self):
+        with tempfile.TemporaryDirectory() as folder:
+            binary = Path(folder) / 'agy/bin/agy.exe'
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b'synthetic executable marker; must never run')
+            with patch.dict(os.environ, {'LOCALAPPDATA': folder, 'APPDATA': folder, 'ProgramFiles': folder}), patch('shutil.which', return_value=None):
+                value = discover_agent('antigravity', {}, runner=lambda _: self.fail('No provider execution'))
+            self.assertEqual(value['state'], 'INSTALLED')
+            self.assertEqual(value['command'], [str(binary.resolve())])
+            self.assertEqual(value['authentication'], 'UNKNOWN')
+            self.assertFalse(value['live_verified'])
+
     def entry(self, name='codex'):
         return {**defaults()['providers'][name], 'command': [sys.executable]}
 
@@ -300,6 +431,140 @@ class LocalTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(home.exists())
 
+    def test_init_accepts_plain_verification_command_without_executing_it(self):
+        repo = self.base / 'explicit verify project'
+        repo.mkdir(); git(repo, 'init')
+        command = [sys.executable, '-m', 'unittest', 'discover', '-s', 'tests']
+        result = self.cli('init', '--json', '--verify-command', *command, cwd=repo)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        registered = json.loads(result.stdout)
+        self.assertEqual(json.loads(registered['project']['verify']), [command])
+        self.assertEqual(registered['ai_calls'], 0)
+        self.assertTrue(registered['verification_configured'])
+        empty = self.cli('init', '--verify-command', cwd=repo)
+        self.assertNotEqual(empty.returncode, 0)
+        self.assertIn('Provide an executable', empty.stderr)
+
+    def gradle_fixture(self, name='nested gradle', folders=('SkillNova App',), tests=True):
+        repo = self.base / name
+        repo.mkdir(); git(repo, 'init')
+        for folder in folders:
+            root = repo / folder
+            root.mkdir()
+            (root / 'settings.gradle.kts').write_text('// synthetic settings')
+            (root / 'gradlew.bat').write_text('@echo off\necho SYNTHETIC %*\n')
+            (root / 'gradlew').write_text('#!/bin/sh\necho synthetic\n')
+            if tests:
+                source = root / 'app/src/test/java/FixtureTest.java'
+                source.parent.mkdir(parents=True)
+                source.write_text('// synthetic unit-test source')
+        return repo
+
+    def test_mcp_install_accepts_empty_whitespace_and_bom_config_with_backups(self):
+        for index, data in enumerate((b'', b' \n', b'\xef\xbb\xbf', b'\xef\xbb\xbf{"synthetic":true}')):
+            with self.subTest(data=data):
+                target = self.base / ('empty-mcp-' + str(index) + '.json')
+                target.write_bytes(data)
+                result = install_client(self.hub.store.home, 'antigravity', True, target=target)
+                self.assertEqual(Path(result['backup']).read_bytes(), data)
+                value = json.loads(target.read_text(encoding='utf-8'))
+                self.assertIn('multi_agents', value['mcpServers'])
+                if b'synthetic' in data:
+                    self.assertTrue(value['synthetic'])
+
+    def test_mcp_install_preserves_invalid_or_wrong_shape_json(self):
+        for index, data in enumerate((b'broken JSON', b'[]', b'{"mcpServers": []}')):
+            with self.subTest(data=data):
+                target = self.base / ('bad-mcp-' + str(index) + '.json')
+                target.write_bytes(data)
+                with self.assertRaises(ValueError):
+                    install_client(self.hub.store.home, 'antigravity', True, target=target)
+                self.assertEqual(target.read_bytes(), data)
+
+    def test_init_detects_nested_untracked_gradle_without_running_build(self):
+        repo = self.gradle_fixture()
+        value = initialize(self.hub, repo)
+        command = json.loads(value['project']['verify'])[0]
+        self.assertIn('--offline', command)
+        self.assertEqual(command[-1], 'test')
+        self.assertEqual(command[command.index('--project-dir') + 1], 'SkillNova App')
+        self.assertIn('SkillNova App', ' '.join(command))
+        self.assertFalse(value['verification_executed'])
+        self.assertIn('not executed', value['verification_hint'])
+        from agenthub.presentation import compact
+        self.assertIn('Tests run: no', compact(value))
+        self.assertIn('Check:', compact(value))
+        self.assertEqual(git(repo, 'ls-files').strip(), '')
+
+    def test_gradle_ambiguity_and_missing_tests_do_not_create_false_verifier(self):
+        for name, folders, tests in (('two gradles', ('A', 'B'), True), ('no tests', ('A',), False)):
+            with self.subTest(name=name):
+                value = initialize(self.hub, self.gradle_fixture(name, folders, tests))
+                self.assertFalse(value['verification_configured'])
+                self.assertEqual(json.loads(value['project']['verify']), [])
+
+    def test_gradle_missing_wrapper_is_rejected_before_project_registration(self):
+        repo = self.base / 'bad wrapper'; repo.mkdir(); git(repo, 'init')
+        with self.assertRaisesRegex(ValueError, 'Gradle wrapper not found'):
+            initialize(self.hub, repo, verify=[['cmd.exe', '/d', '/c', 'gradlew.bat', 'test']])
+        self.assertFalse(self.hub.store.one('SELECT id FROM projects WHERE path=?', (str(repo.resolve()),)))
+
+    def test_replace_verify_is_explicit_backed_up_and_refreshes_cached_context(self):
+        from agenthub.settings import project_settings_path
+        repo = self.gradle_fixture('replace gradle')
+        before = initialize(self.hub, repo)
+        original = json.loads(before['project']['verify'])
+        replacement = [[sys.executable, '-m', 'unittest']]
+        with self.assertRaisesRegex(ValueError, '--replace-verify'):
+            initialize(self.hub, repo, verify=replacement)
+        after = initialize(self.hub, repo, verify=replacement, replace_verify=True)
+        backup = project_settings_path(self.hub.store.home, before['project']['id']).parent / 'verification-previous.json'
+        self.assertEqual(json.loads(backup.read_text())['commands'], original)
+        self.assertEqual(after['context']['verification'], replacement)
+        self.assertEqual(after['context']['version'], before['context']['version'] + 1)
+        self.assertEqual(get_context(self.hub, before['project']['id'])['verification'], replacement)
+
+    def test_replace_verify_blocks_active_workflow_and_preserves_current_command(self):
+        original = self.hub.store.project(self.project['id'])['verify']
+        self.hub.start('demo', 'Filter tasks', 'active-verify-change', launch=False)
+        with self.assertRaisesRegex(ValueError, 'workflow is active'):
+            initialize(self.hub, self.source, verify=[[sys.executable, '-m', 'unittest']], replace_verify=True)
+        self.assertEqual(self.hub.store.project(self.project['id'])['verify'], original)
+
+    def test_replace_verify_can_redetect_but_preserves_settings_when_ambiguous(self):
+        repo = self.gradle_fixture('redetect gradle')
+        before = initialize(self.hub, repo, verify=[[sys.executable, '-m', 'unittest']])
+        changed = initialize(self.hub, repo, replace_verify=True)
+        self.assertEqual(json.loads(changed['project']['verify'])[0][-1], 'test')
+        self.assertNotEqual(changed['project']['verify'], before['project']['verify'])
+        second = repo / 'Second'; second.mkdir()
+        for name in ('settings.gradle.kts', 'gradlew.bat', 'gradlew'):
+            (second / name).write_text('// synthetic fixture')
+        test = second / 'src/test/java/Test.java'; test.parent.mkdir(parents=True); test.write_text('// synthetic')
+        with self.assertRaisesRegex(ValueError, 'existing verification was preserved'):
+            initialize(self.hub, repo, replace_verify=True)
+        self.assertEqual(self.hub.store.project(before['project']['id'])['verify'], changed['project']['verify'])
+
+    def test_cli_replace_verify_updates_without_json_or_source_writes(self):
+        repo = self.gradle_fixture('cli replace')
+        first = self.cli('init', cwd=repo)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        changed = self.cli('init', '--replace-verify', '--verify-command', sys.executable, '-m', 'unittest', cwd=repo)
+        self.assertEqual(changed.returncode, 0, changed.stderr)
+        self.assertIn('Tests run: no', changed.stdout)
+        self.assertIn('-m unittest', changed.stdout)
+        self.assertEqual(git(repo, 'status', '--porcelain').strip(), '?? "SkillNova App/"')
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows Gradle wrapper quoting')
+    def test_generated_windows_gradle_command_handles_spaces(self):
+        from agenthub.discovery import detect_checks
+        repo = self.gradle_fixture('space wrapper invocation')
+        _, checks = detect_checks(repo, include_untracked=True)
+        result = subprocess.run(checks[0], cwd=repo, capture_output=True, encoding='utf-8', timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('SYNTHETIC', result.stdout)
+        self.assertIn('--offline test', result.stdout)
+
     def test_cli_plain_defaults_and_explicit_json_remain_compatible(self):
         for command in (('init',), ('config',), ('doctor', '--offline'), ('agents', 'models'),
                         ('projects', 'list')):
@@ -436,7 +701,7 @@ class LocalTests(unittest.TestCase):
         selected = {'antigravity', 'codex', 'copilot'}
         rows = [{'agent': n, 'state': 'UNKNOWN', 'version': 'Unknown', 'authentication': 'UNKNOWN',
                  'roles': defaults()['providers'][n]['roles'], 'model_catalog': []} for n in selected]
-        answers = ['AUTO', 'y', 'n'] + (['n'] if os.name == 'nt' else []) + ['']
+        answers = ['AUTO', 'y', 'n'] + (['n'] if os.name == 'nt' else []) + ['', 'n']
         security = self.hub.config['security'].copy()
         with patch('agenthub.wizard.discover', return_value=rows), patch('agenthub.wizard.checkbox', return_value=selected), patch('builtins.input', side_effect=answers), patch('sys.stdout', io.StringIO()) as printed:
             run(self.hub, check=False)

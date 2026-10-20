@@ -396,6 +396,7 @@ class HubTests(unittest.TestCase):
         from agenthub.platforms import pid_alive
         script=Path(self.tmp.name)/'offline_worker.py'
         script.write_text('import sys\nfrom pathlib import Path\n'
+                          'if "sandbox" in sys.argv:\n    print("HUB_SANDBOX_OK"); sys.exit(0)\n'
                           'sys.stdin.read()\n'
                           'p=Path("README.md"); p.write_text(p.read_text()+"\\nOffline worker verified.\\n")\n'
                           'Path(sys.argv[sys.argv.index("--output-last-message")+1]).write_text('+repr(json.dumps(report('implement')))+',encoding="utf-8")\n',encoding='utf-8')

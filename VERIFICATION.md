@@ -1,5 +1,17 @@
 # Kiểm chứng bản demo
 
+## Ubuntu — 2026-10-20
+
+Portable setup/launcher update: **175 cases, 168 passed, 7 Windows-only skipped**.
+Actual Ubuntu setup/init, MCP/18 tools, two completed model-backed workflows, delivery
+integrity and exported behavior were checked separately from the suite. Five Hub CLI
+calls used Codex/Copilot; one Antigravity frontend attempt hit real quota (6 total).
+UI prompt dispatch and exhausted-host chat operation are **not accepted** from this
+result. See [Ubuntu readiness evidence](docs/UBUNTU_READINESS.md) for seven-layer
+coverage, exact limits and filming gates. Default provider commands are machine-neutral
+and configure all four supported CLIs; enabled/installed/authenticated/working are
+separate states. No global security attestation was invented.
+
 ## V2 — Windows, 2026-10-20
 
 Chat results/setup login/wake update: **167 unittest pass in 77.684s**, including 11

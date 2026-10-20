@@ -76,6 +76,11 @@ def common_candidates(name):
         if name == 'antigravity':
             relative += [local / 'agy/bin/agy.exe', program / 'Google/antigravity-cli/agy.exe']
         values.extend([str(p)] for p in relative if p.is_file())
+    else:
+        # Official user-local native installers may precede a shell PATH refresh.
+        candidate = Path.home() / '.local/bin' / spec['client']
+        if candidate.is_file():
+            values.append([str(candidate)])
     return values
 
 

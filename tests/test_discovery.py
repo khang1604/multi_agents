@@ -1,9 +1,11 @@
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from agenthub.api import Hub
 from agenthub.config import ROOT
@@ -69,7 +71,9 @@ class DiscoveryTests(unittest.TestCase):
     def test_outside_git_fails_without_creating_repo(self):
         folder = self.base / 'empty'
         folder.mkdir()
-        with self.assertRaisesRegex(ValueError, 'Not inside a Git project'):
+        # TMPDIR can itself be nested inside an unrelated Git checkout.
+        with patch.dict(os.environ, {'GIT_CEILING_DIRECTORIES': str(self.base)}), \
+                self.assertRaisesRegex(ValueError, 'Not inside a Git project'):
             identify(self.hub, folder)
         self.assertFalse((folder / '.git').exists())
 

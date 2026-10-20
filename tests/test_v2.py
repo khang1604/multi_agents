@@ -701,7 +701,7 @@ class LocalTests(unittest.TestCase):
         selected = {'antigravity', 'codex', 'copilot'}
         rows = [{'agent': n, 'state': 'UNKNOWN', 'version': 'Unknown', 'authentication': 'UNKNOWN',
                  'roles': defaults()['providers'][n]['roles'], 'model_catalog': []} for n in selected]
-        answers = ['AUTO', 'y', 'n'] + (['n'] if os.name == 'nt' else []) + ['', 'n']
+        answers = ['AUTO', 'y', 'n', 'n', '', 'n']
         security = self.hub.config['security'].copy()
         with patch('agenthub.wizard.discover', return_value=rows), patch('agenthub.wizard.checkbox', return_value=selected), patch('builtins.input', side_effect=answers), patch('sys.stdout', io.StringIO()) as printed:
             run(self.hub, check=False)

@@ -11,9 +11,6 @@ def default_home():
 
 
 def defaults():
-    codex = '/usr/lib/chatgpt/resources/codex'
-    if os.name == 'nt' or not Path(codex).exists():
-        codex = 'codex'
     return {
         'schema_version': 1,
         'security': {'require_isolation': False, 'isolated_test_environment': False,
@@ -23,7 +20,7 @@ def defaults():
         'reviewer_priority': ['claude', 'copilot', 'codex', 'antigravity'],
         'providers': {
             'antigravity': {'command': ['agy'], 'enabled': True, 'roles': ['plan', 'review']},
-            'codex': {'command': [codex], 'enabled': True, 'roles': ['plan', 'implement', 'review']},
+            'codex': {'command': ['codex'], 'enabled': True, 'roles': ['plan', 'implement', 'review']},
             'claude': {'command': ['claude'], 'enabled': True, 'roles': ['plan', 'implement', 'review']},
             'copilot': {'command': ['copilot'], 'enabled': True, 'roles': ['plan', 'review']},
         },

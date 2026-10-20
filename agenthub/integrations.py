@@ -21,10 +21,16 @@ def server(home, client):
 
 def client_target(client):
     home = Path.home()
+    if os.name == 'nt':
+        code_base = Path(os.environ.get('APPDATA', home / 'AppData/Roaming'))
+    elif sys.platform == 'darwin':
+        code_base = home / 'Library/Application Support'
+    else:
+        code_base = Path(os.environ.get('XDG_CONFIG_HOME', home / '.config'))
     paths = {'antigravity': home / '.gemini/config/mcp_config.json',
              'copilot': Path(os.environ.get('COPILOT_HOME', home / '.copilot')) / 'mcp-config.json',
              'claude': home / '.claude.json',
-             'vscode': Path(os.environ.get('APPDATA', home / 'AppData/Roaming')) / 'Code/User/mcp.json'}
+             'vscode': code_base / 'Code/User/mcp.json'}
     if client not in paths:
         raise ValueError('Codex uses its official CLI: ma integrations command codex')
     return paths[client]

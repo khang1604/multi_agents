@@ -187,10 +187,12 @@ def _run(hub, check=True):
     from .presentation import compact
     print(compact(configure(hub, selected, policies)))
     install_queue_wake = False
-    if os.name == 'nt' and input('Install owned ma launcher and automatic queue wake? [y/N]: ').lower() == 'y':
+    launcher_question = ('Install owned ma launcher and automatic queue wake? [y/N]: ' if os.name == 'nt'
+                         else 'Install owned ma launcher (no shell profile changes)? [y/N]: ')
+    if input(launcher_question).strip().lower() in {'y', 'yes'}:
         from .lifecycle import install_command
         print(compact(install_command(hub.store.home)))
-        install_queue_wake = True
+        install_queue_wake = os.name == 'nt'
     from .integrations import CLIENTS, install_client, integration_plan
     client = input('MCP client (' + ','.join(CLIENTS) + '; blank skips): ').strip()
     if client:

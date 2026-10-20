@@ -38,7 +38,7 @@ sinh cấu hình MCP. Xem bằng chứng trong [VERIFICATION](../VERIFICATION.md
 | WIN-01 | CLI 0.163.0 đã vượt sandbox probe; workflow AI còn cần tiếp tục kiểm chứng | Task thật sửa file + verifier pass khi desktop mở; giữ sandbox và call cap |
 | CHAT-01 | @hub chưa kiểm chứng UI Copilot khi chat còn/hết quota | Gửi task, xem tiến độ, cancel/retry từ đúng chat, không gọi host model |
 | CHAT-02 | Khung chat riêng Antigravity và các client khác | Bridge qua API chính thức, xác minh cả hai trạng thái quota |
-| LINUX-01 | Bản mới chưa test Ubuntu; launcher global chưa hoàn thiện | Setup một lần, init một lệnh, prompt IDE; suite và smoke thật pass |
+| LINUX-01 | Đã kiểm terminal Ubuntu 24.04.5, bổ sung launcher portable; chưa nghiệm thu mọi Ubuntu/IDE | Clone sạch, setup/init/prompt trên UI thật và ma trận Ubuntu/Python; xem UBUNTU_READINESS.md |
 | INIT-01 | Chưa có Git/commit sạch, verifier mơ hồ hoặc thiếu dependency | Xử lý rõ trong init với lựa chọn được phép; không báo ready giả |
 | PROVIDER-01 | Claude/Copilot và một số auth/model probe chưa live-test đầy đủ | Smoke synthetic, version, quyền và metadata khi provider có trả |
 | CTX-01 | Bộ lọc data loại cả source package như data/DataRepository.kt | Phân biệt source đã duyệt với thư mục dữ liệu; không nới quyền đọc dữ liệu thật/secrets |

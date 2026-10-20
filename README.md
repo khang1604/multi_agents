@@ -28,10 +28,26 @@ cd multi_agents
 .\setup.ps1
 ```
 
-Chọn agent, model policy chung, cài lệnh `ma` và bridge `@hub` cho VS Code Copilot
+Có thể chọn đủ bốn agent; thiếu CLI/login/quota vẫn phải được báo đúng. Chọn model policy chung, cài lệnh `ma` và bridge `@hub` cho VS Code Copilot
 Chat. Setup kiểm tra CLI đã chọn; bấm số để đăng nhập chính thức ngay tại setup,
 bấm 0 để tiếp tục. CLI chưa hỗ trợ probe auth giữ UNKNOWN; không tự nhận đã đăng nhập.
 Setup có backup. Mở lại IDE/terminal sau khi cài.
+
+**Ubuntu — setup trong terminal:**
+
+```bash
+cd ~/Project/multi_agents
+./setup.sh
+# Nếu muốn gom toàn bộ state vào ~/Project thay cho ~/.local/share:
+python3 ma.py --home ~/Project/multi_agents-demo/home setup
+```
+
+Setup tạo launcher `ma` ghim Python/home. Trên Ubuntu, nó in một lệnh `export PATH=...`;
+chạy lệnh đó trong terminal hiện tại, hoặc dùng đường dẫn launcher tuyệt đối.
+Không tự sửa `.bashrc`, `.profile`, PATH hệ thống hoặc bật autostart.
+Mỗi terminal mới cần export lại nếu bạn chưa chủ động lưu PATH. Source `ma` cũng
+chạy được bằng `./ma`, nhưng launcher đã cài giữ đúng home cấu hình đã chọn.
+Hướng dẫn demo và giới hạn đã kiểm chứng: [docs/UBUNTU_DEMO.md](docs/UBUNTU_DEMO.md).
 
 **2. Vào project được phép, chạy một lệnh:**
 
@@ -45,16 +61,24 @@ Windows không gọi model, chạy baseline trong worktree riêng và kiểm tra
 commit sạch và dependency sẵn sàng; thiếu thì báo nguyên nhân trước khi gọi AI.
 Không tự commit source hoặc tắt sandbox để chạy tiếp.
 
-**3. Nhập trong Copilot Chat:**
+**3. Mở chat trong project và nhập prompt bình thường:**
+
+Ví dụ trong Antigravity, sau khi setup đã kết nối MCP `multi_agents` và IDE đã refresh:
 
 ```text
-@hub Thêm tài liệu hướng dẫn chạy dự án. Kiểm tra thay đổi bằng verifier đã cấu hình.
+Thêm chức năng lọc công việc theo trạng thái và từ khóa, giữ tương thích và bổ sung test.
 ```
 
-`@hub` gửi trực tiếp tới Hub, không gọi model chat trung gian. Bridge đã cài/test
-stdio; UI thật và tình huống chat hết quota vẫn cần kiểm chứng. Chưa bảo đảm khung
-chat riêng Antigravity khi hết quota. Ubuntu còn cần hoàn thiện launcher global và
-kiểm thử lại bản hiện tại.
+MCP cung cấp chỉ dẫn để client khớp đúng project đã `ma init`, lấy checkpoint và giao
+việc cho Hub. Không cần dán prompt điều phối dài hoặc chạy `ma run` cho từng task.
+Client vẫn cần nhận server/tool và tuân theo chỉ dẫn; chưa xác minh UI thì không được
+khẳng định request đã qua Hub. Khi host chat hết quota, request mới có thể bị chặn trước
+khi gọi tool; workflow đã dispatch vẫn do daemon quản lý.
+
+Nếu dùng bridge Copilot Chat trực tiếp, chọn participant `@hub` một lần; participant
+sticky để các lượt sau nhập nội dung bình thường. Đây là lựa chọn khác với chat riêng
+Antigravity, không bắt buộc thay giao diện chat bạn đang dùng. Xem
+[Ubuntu demo](docs/UBUNTU_DEMO.md) và [giới hạn](docs/KNOWN_ISSUES.md).
 
 ## Tính năng hiện có
 
@@ -72,7 +96,7 @@ kiểm thử lại bản hiện tại.
 | Trạng thái tự động | Probe chính thức + phản hồi CLI đã lưu, khớp binary/model; quota hiển thị riêng |
 | Chờ quota và đánh thức | Lịch bền vững, khôi phục khi Hub chạy lại; không gọi sớm hoặc tự tăng lượt |
 | Chat `@hub` | Bridge VS Code Copilot; chưa nghiệm thu UI/quota và mọi IDE |
-| Windows/Ubuntu | Windows: Codex CLI 0.163.0 đã chạy sandbox khi desktop mở. Ubuntu: bản mới chưa test |
+| Windows/Ubuntu | Ubuntu: launcher/setup/init và workflow thật Codex/Copilot đã kiểm trên 24.04.5; UI/mọi bản Ubuntu chưa nghiệm thu. Windows: xem VERIFICATION.md |
 
 ## Lệnh và cách dùng
 
@@ -106,3 +130,5 @@ không tạo task trùng. Provider vẫn cần quota riêng để chạy AI.
 Xem [lỗi đã sửa và phần cần đóng góp](docs/KNOWN_ISSUES.md),
 [hướng dẫn + prompt đầu tiên cho agent](CONTRIBUTING.md) và
 [bằng chứng kiểm thử](VERIFICATION.md). Ưu tiên hoàn thiện 3 bước trước khi thêm tính năng.
+
+Cấu hình mẫu portable cho đủ 4 CLI: [providers.example.json](examples/config/providers.example.json). Đây là ví dụ providers, không chứa login hay xác nhận security; setup vẫn nhận lựa chọn của người dùng.

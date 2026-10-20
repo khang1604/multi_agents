@@ -62,7 +62,13 @@ def serve(home, client='unknown'):
                 version = requested if requested in {'2024-11-05', '2025-03-26', '2025-06-18'} else '2024-11-05'
                 result = {'protocolVersion': version, 'capabilities': {'tools': {}},
                           'serverInfo': {'name': 'agent-hub-private', 'version': '0.2.0'},
-                          'instructions': 'Call projects_list then recover_context before creating work. Use stable request_key. '
+                          'instructions': 'For ordinary coding requests in a workspace initialized with ma init, use this Hub; '
+                                          'the user does not need a special prompt prefix or a terminal ma run command. '
+                                          'Call projects_list and match the exact current workspace Git root, then recover_context. '
+                                          'Never guess a project or register an arbitrary path; ask if the workspace cannot be matched. '
+                                          'Reuse an existing active workflow and prior context. Dispatch with workflow_start, a stable request_key '
+                                          'and a prepared_plan/handoff when already available; do not implement a parallel workflow yourself. '
+                                          'Do not change security flags or increase the call budget. '
                                           'The daemon handles retries and leader failover without model supervision. Do not repeatedly poll with AI; check status only when useful.'}
             elif method == 'ping':
                 result = {}

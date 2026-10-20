@@ -9,6 +9,7 @@ import tomllib
 from .discovery import repository_root, detect_checks
 from .settings import atomic_json, project_settings_path, ensure_idle
 from .workspace import cached_file, files
+from .platforms import FileLock
 
 MANIFESTS = {'package.json', 'pyproject.toml', 'requirements.txt', 'Cargo.toml', 'go.mod',
              'pom.xml', 'build.gradle', 'build.gradle.kts', 'global.json'}
@@ -19,7 +20,33 @@ def outside_repository(home, root):
         raise ValueError('ma data home must be outside the project repository')
 
 
-def initialize(hub, cwd, name=None, verify=None):
+def validate_wrappers(root, commands):
+    """Check only named Gradle paths; never launch a build during initialization."""
+    for command in commands:
+        if not isinstance(command, list) or not command or not all(isinstance(arg, str) for arg in command):
+            raise ValueError('verify must contain executable argument arrays')
+        position = 0
+        if Path(command[0]).name.lower() in {'cmd', 'cmd.exe'} and '/c' in command:
+            position = command.index('/c') + 1
+            if position < len(command) and command[position].lower() == 'call':
+                position += 1
+        if position >= len(command):
+            continue
+        wrapper = command[position].replace('\\', '/')
+        if Path(wrapper).name not in {'gradlew', 'gradlew.bat'}:
+            continue
+        target = (root / wrapper).resolve()
+        if not target.is_relative_to(root) or not target.is_file():
+            raise ValueError('Gradle wrapper not found inside project: ' + wrapper + '; correct the path with ma init --replace-verify --verify-command ...')
+        for flag in ('-p', '--project-dir'):
+            if flag in command:
+                index = command.index(flag) + 1
+                folder = (root / command[index].replace('\\', '/')).resolve() if index < len(command) else None
+                if folder is None or not folder.is_relative_to(root) or not folder.is_dir():
+                    raise ValueError('Gradle project directory is missing or outside the repository')
+
+
+def initialize(hub, cwd, name=None, verify=None, replace_verify=False):
     root = repository_root(cwd)
     outside_repository(hub.store.home, root)
     existing = next((p for p in hub.store.all('SELECT * FROM projects')
@@ -27,14 +54,39 @@ def initialize(hub, cwd, name=None, verify=None):
     if existing and name and name != existing['name']:
         raise ValueError('Project already registered as ' + existing['name'])
     detection = 'explicit; not executed'
+    if verify is None and (not existing or not json.loads(existing['verify']) or replace_verify):
+        try:
+            detection, verify = detect_checks(root, include_untracked=True)
+            if detection == 'dotnet':
+                test_project = any(p.suffix.lower() == '.csproj' and p.stat().st_size <= 65536
+                                   and ('<IsTestProject>true</IsTestProject>' in p.read_text(encoding='utf-8', errors='replace')
+                                        or 'Microsoft.NET.Test.Sdk' in p.read_text(encoding='utf-8', errors='replace'))
+                                   for _, p in files(root))
+                if not test_project:
+                    detection, verify = 'dotnet build/test commands require explicit --verify-command', []
+        except ValueError as error:
+            detection, verify = str(error), []
+        if replace_verify and not verify:
+            raise ValueError(detection + '; existing verification was preserved')
+    if verify is not None:
+        validate_wrappers(root, verify)
     if existing:
-        if verify is not None and json.loads(existing['verify']) and verify != json.loads(existing['verify']):
-            raise ValueError('Existing verification differs; initialization will not overwrite it')
+        if verify is not None and json.loads(existing['verify']) and verify != json.loads(existing['verify']) and not replace_verify:
+            raise ValueError('Existing verification differs; use --replace-verify with the intended command')
         project = existing
-        if verify is not None and not json.loads(existing['verify']):
-            ensure_idle(hub.store)
+        if verify and verify != json.loads(existing['verify']):
+            # Validate first; add_project preserves the existing registration.
             hub.store.add_project(existing['name'], root, verify, json.loads(existing['context_paths']))
-            with hub.store.connection() as db:
+            with FileLock(hub.store.home / 'settings.lock'), hub.store.connection() as db:
+                db.execute('BEGIN IMMEDIATE')
+                if db.execute("SELECT id FROM workflows WHERE status IN ('queued','running','waiting','recovering') LIMIT 1").fetchone():
+                    raise ValueError('Verification cannot change while a workflow is active')
+                current = db.execute('SELECT verify FROM projects WHERE id=?', (existing['id'],)).fetchone()[0]
+                if current != existing['verify']:
+                    raise ValueError('Verification changed concurrently; initialize again')
+                if json.loads(current):
+                    folder = project_settings_path(hub.store.home, existing['id']).parent
+                    atomic_json(folder / 'verification-previous.json', {'commands': json.loads(current)})
                 db.execute('UPDATE projects SET verify=? WHERE id=?', (json.dumps(verify), existing['id']))
             project = hub.store.project(existing['id'])
         removed = project_settings_path(hub.store.home, project['id']).parent / 'removed.json'
@@ -42,24 +94,11 @@ def initialize(hub, cwd, name=None, verify=None):
             ensure_idle(hub.store)
             atomic_json(removed, {'removed': False})
     else:
-        if verify is None:
-            try:
-                detection, verify = detect_checks(root)
-                if detection == 'dotnet':
-                    # dotnet test can exit successfully without finding a test project.
-                    # Require actual test-project metadata, not just a solution filename.
-                    test_project = any(p.suffix.lower() == '.csproj' and p.stat().st_size <= 65536
-                                       and ('<IsTestProject>true</IsTestProject>' in p.read_text(encoding='utf-8', errors='replace')
-                                            or 'Microsoft.NET.Test.Sdk' in p.read_text(encoding='utf-8', errors='replace'))
-                                       for _, p in files(root))
-                    if not test_project:
-                        detection, verify = 'dotnet build/test commands require explicit --verify', []
-            except ValueError:
-                detection, verify = 'unknown; configure --verify before running a workflow', []
         key = hashlib.sha256(os.path.normcase(str(root)).encode('utf-8')).hexdigest()[:12]
         slug = re.sub(r'[^\w-]+', '-', root.name).strip('-')[:48] or 'project'
         project = hub.store.add_project(name or slug + '-' + key, root, verify,
                                        ['README.md', 'app', 'src', 'tests'], allow_unverified=True)
+    validate_wrappers(root, json.loads(project['verify']))
     return refresh(hub, project, detection)
 
 
@@ -106,7 +145,7 @@ def refresh(hub, project, detection='existing commands; not executed'):
     folder = project_settings_path(hub.store.home, project['id']).parent
     target = folder / 'context' / 'project.json'
     previous = json.loads(target.read_text(encoding='utf-8')) if target.exists() else {}
-    changed = previous.get('fingerprint') != digest
+    changed = previous.get('fingerprint') != digest or previous.get('verification') != json.loads(project['verify'])
     value = {'project_id': project['id'], 'root': str(root), 'version': previous.get('version', 0) + int(changed),
              'fingerprint': digest, 'files': manifest, 'languages': sorted(languages),
              'dependencies': sorted(set(dependencies)), 'documents': excerpts,
@@ -119,7 +158,9 @@ def refresh(hub, project, detection='existing commands; not executed'):
     elif previous:
         value = previous
     return {'project': project, 'context': value, 'context_changed': changed,
-            'verification_configured': bool(json.loads(project['verify'])), 'ai_calls': 0}
+            'verification_configured': bool(json.loads(project['verify'])),
+            'verification_executed': False, 'verification_command': json.loads(project['verify']),
+            'verification_hint': detection, 'ai_calls': 0}
 
 
 def get_context(hub, project):

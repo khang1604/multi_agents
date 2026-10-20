@@ -2,7 +2,7 @@
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import subprocess
 
@@ -15,8 +15,9 @@ def repository_root(cwd):
     return Path(result.stdout.strip()).resolve()
 
 
-def detect_checks(root):
-    result = subprocess.run(['git', '-c', 'core.fsmonitor=false', '-C', str(root), 'ls-files', '-z'],
+def detect_checks(root, include_untracked=False):
+    listing = ['--cached', '--others', '--exclude-standard'] if include_untracked else []
+    result = subprocess.run(['git', '-c', 'core.fsmonitor=false', '-C', str(root), 'ls-files', '-z', *listing],
                             capture_output=True, encoding='utf-8', errors='replace', timeout=20, check=True)
     files = set(result.stdout.split('\0')) - {''}
     candidates = []
@@ -33,8 +34,33 @@ def detect_checks(root):
     if 'package.json' in files:
         # package scripts may run arbitrary commands; require the operator to select them.
         candidates.append(('node (explicit --verify required)', None))
+    if include_untracked:
+        ignored = {'node_modules', 'build', '.gradle', '.git', 'data', 'vendor'}
+        names = {name for name in files if not (set(PurePosixPath(name).parts) & ignored)}
+        wrappers = sorted(name for name in names if PurePosixPath(name).name == ('gradlew.bat' if os.name == 'nt' else 'gradlew'))
+        for wrapper in wrappers:
+            folder = PurePosixPath(wrapper).parent
+            markers = {str(folder / name) for name in ('settings.gradle', 'settings.gradle.kts', 'build.gradle', 'build.gradle.kts')}
+            target = (Path(root) / wrapper).resolve()
+            if not target.is_relative_to(Path(root).resolve()) or not target.is_file() or not markers.intersection(names):
+                continue
+            prefix = '' if str(folder) == '.' else str(folder) + '/'
+            tests = any(name.startswith(prefix) and '/src/test/' in '/' + name[len(prefix):]
+                        and name.endswith(('.java', '.kt', '.groovy')) for name in names)
+            if not tests:
+                candidates.append(('gradle (no unit-test sources; explicit --verify-command required)', None))
+                continue
+            # Relative paths remain valid in the workflow worktree. No build is run here.
+            if os.name == 'nt' and any(c in wrapper for c in '&|<>^%!\r\n'):
+                candidates.append(('gradle (wrapper path requires explicit verification)', None))
+                continue
+            command = (['cmd.exe', '/d', '/c', 'call', wrapper.replace('/', '\\')] if os.name == 'nt' else ['./' + wrapper])
+            command += ['--project-dir', str(folder), '--offline', 'test']
+            candidates.append(('gradle (offline; not executed)', [command]))
     if len(candidates) != 1 or candidates[0][1] is None:
-        raise ValueError('Cannot safely choose a test command for this project. Pass --verify with JSON argument arrays (see README). No files were read or tests executed.')
+        if not include_untracked:
+            raise ValueError('Cannot safely choose a test command for this project. Pass --verify with JSON argument arrays (see README). No files were read or tests executed.')
+        raise ValueError('Cannot safely choose a test command; use ma init --verify-command EXECUTABLE ARGS (or legacy --verify JSON). No file bodies were read or tests executed.')
     return candidates[0]
 
 

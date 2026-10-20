@@ -24,6 +24,15 @@ def brief(value):
     return text(value)
 
 
+def command_line(command):
+    import os
+    import shlex
+    import subprocess
+    import sys
+    values = [sys.executable if arg == '{python}' else text(arg) for arg in command]
+    return subprocess.list2cmdline(values) if os.name == 'nt' else shlex.join(values)
+
+
 def compact(value):
     if isinstance(value, list):
         lines = [brief(row) for row in value[-8:]]
@@ -34,10 +43,7 @@ def compact(value):
         return brief(value)
     command = value.get('command')
     if isinstance(command, list):
-        import os
-        import shlex
-        import subprocess
-        quoted = subprocess.list2cmdline(command) if os.name == 'nt' else shlex.join(command)
+        quoted = command_line(command)
         return '\n'.join((brief(value.get('status', 'Command')), quoted))
     if 'id' in value and 'phase' in value and 'status' in value:
         lines = [f"Workflow: {text(value['id'])}",
@@ -49,9 +55,18 @@ def compact(value):
         return '\n'.join(lines)
     if 'project' in value and 'context_changed' in value:
         project = value['project']
-        return '\n'.join((f"Project: {brief(project.get('name'))}",
+        lines = [f"Project: {brief(project.get('name'))}",
                           f"Path: {brief(project.get('path'))}",
-                          f"Context updated: {brief(value['context_changed'])} | Tests configured: {brief(value['verification_configured'])} | AI calls: {value['ai_calls']}"))
+                          f"Context updated: {brief(value['context_changed'])} | Tests configured: {brief(value['verification_configured'])} | Tests run: {brief(value.get('verification_executed', False))} | AI calls: {value['ai_calls']}"]
+        if value.get('readiness', {}).get('ready'):
+            lines.append('Baseline verifier: PASS | Hub MCP: OK')
+            lines.append('Next: Copilot Chat → @hub PROMPT' if value['readiness'].get('chat_bridge_configured')
+                         else 'Next: setup global → install @hub, or ma integrations chat --apply')
+        for command in value.get('verification_command', []):
+            lines.append('Check: ' + command_line(command))
+        if not value['verification_configured']:
+            lines.append('Next: ma init --verify-command EXECUTABLE ARGS')
+        return '\n'.join(lines)
     # Do not dump source excerpts, manifests or complete workflow payloads.
     hidden = {'documents', 'files', 'plan', 'review', 'handoff', 'events', 'attempts'}
     lines = []

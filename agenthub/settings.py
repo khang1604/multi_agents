@@ -69,6 +69,19 @@ def effective_config(config, home, project_id):
             result['providers'][name]['enabled'] = globally_enabled and entry.get('enabled', globally_enabled)
             from .registry import validate_entry
             validate_entry(name, result['providers'][name])
+    scope_path = path.parent / 'scope.json'
+    if scope_path.exists():
+        scope = json.loads(scope_path.read_text(encoding='utf-8'))
+        # Only an explicit operator attestation for this exact registration can
+        # grant synthetic data scope; isolation policy and network stay intact.
+        from .store import Store
+        project = Store(home).project(project_id)
+        if (scope.get('source') != project['path'] or scope.get('confirmation_source') != 'operator'
+                or scope.get('synthetic_data_only') is not True or scope.get('application_apis') != []):
+            raise ValueError('Invalid project scope; initialize interactively again')
+        result['security']['synthetic_data_only'] = True
+    from .readiness import execution_environment
+    result['_execution_environment'] = execution_environment(home, project_id)
     return result
 
 

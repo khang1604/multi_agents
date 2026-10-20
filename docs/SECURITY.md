@@ -12,6 +12,14 @@ Context bỏ .env, credential/private-key files, appsettings và các thư mục
 Hub mặc định chặn workflow thật trước khi tạo worktree/đọc context. Demo `--simulate`
 vẫn chạy trên fixture tự tạo, không gọi model. Mọi lời gọi CLI thật nhận GLOBAL_RULES.md.
 
+Interactive `ma init` nhận xác nhận trực tiếp cho đúng source/synthetic/no-API và
+lưu `projects/ID/scope.json` ở home ngoài repo. Xác nhận này không sửa policy cách ly
+global, không khai báo đã cách ly và không mở mạng API. Project khác không kế thừa
+record này. SDK runtime chỉ chấp nhận ANDROID_HOME/ANDROID_SDK_ROOT trỏ tới directory;
+không cho project ghi đè PATH, command hay biến credential. Chat bridge tôn trọng
+Workspace Trust, chỉ dispatch project đã đăng ký khớp workspace; không gọi model
+trung gian của IDE và không sửa security flags. Dừng chat không hủy daemon.
+
 ## Điều kiện trước khi bật
 
 1. Người dùng cho phép source cụ thể và xác nhận chỉ có dữ liệu synthetic. Không mở

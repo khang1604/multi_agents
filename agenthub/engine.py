@@ -74,6 +74,11 @@ class Engine:
             db.execute('UPDATE attempts SET status=?,ended=?,outcome=?,error=?,usage=? WHERE id=?',
                        ('completed' if result.report else 'failed', time.time(),
                         encode(result.report) if result.report else None, result.error[-6000:], encode(result.usage), attempt_id))
+        if result.report and result.report.get('outcome') == 'completed':
+            attempt = self.store.one('SELECT provider FROM attempts WHERE id=?', (attempt_id,))
+            if attempt and attempt['provider'] in self.config['providers']:
+                from .registry import record_live_success
+                record_live_success(self.store.home, attempt['provider'], self.config['providers'][attempt['provider']])
 
     def _cancelled(self, workflow_id, generation):
         row = self.store.workflow(workflow_id)
@@ -87,7 +92,8 @@ class Engine:
             if provider in excluded or role not in entry.get('roles', []) or not entry.get('enabled'):
                 continue
             try:
-                resolve_command(entry['command'])
+                from .registry import execution_command
+                execution_command(provider, entry)
                 installed.append(provider)
             except (OSError, ValueError):
                 pass
@@ -95,8 +101,10 @@ class Engine:
         cooldowns = [health[p]['until'] for p in installed if p in health and
                      health[p]['reason'].startswith(('quota:', 'temporary:')) and health[p]['until'] > time.time()]
         if cooldowns:
+            wake_at = min(cooldowns)
             self.store.update(flow['id'], status='waiting', next_run=min(cooldowns),
                               error='Available providers are cooling down; no AI calls before next_run')
+            self.store.event(flow['id'], 'quota_wait_scheduled', {'not_before': wake_at, 'providers': installed})
         else:
             reason = 'No eligible CLI available for ' + role + '. Run doctor/configure providers.'
             if role == 'review' and excluded:
@@ -124,7 +132,19 @@ class Engine:
                 self.invoker.config = original
 
     def _step(self, flow):
-        if time.time() - flow['created'] > self.config['max_workflow_age_hours'] * 3600:
+        budget_start = flow['created']
+        wake = self.store.one("SELECT id,data FROM events WHERE workflow_id=? AND kind IN ('resume_scheduled','quota_wait_scheduled') ORDER BY id DESC LIMIT 1", (flow['id'],))
+        if wake:
+            deadline = json.loads(wake['data'])['not_before']
+            activation = self.store.one("SELECT data,created FROM events WHERE workflow_id=? AND kind='wake_activated' ORDER BY id DESC LIMIT 1", (flow['id'],))
+            if activation and json.loads(activation['data']).get('schedule_id') == wake['id']:
+                budget_start = max(budget_start, activation['created'])
+            elif time.time() >= deadline:
+                budget_start = time.time()
+                self.store.event(flow['id'], 'wake_activated', {'schedule_id': wake['id']})
+            else:
+                return
+        if time.time() - budget_start > self.config['max_workflow_age_hours'] * 3600:
             self.store.update(flow['id'], status='blocked', error='Workflow time budget exhausted; progress retained')
             return
         project = self.store.project(flow['project_id'])
@@ -169,6 +189,15 @@ class Engine:
         if not provider:
             self._wait_or_block(flow, role, priority, excluded)
             return
+        if role == 'implement' and isinstance(self.invoker, Invoker):
+            from .readiness import probe_worker
+            try:
+                probe_worker(self.config, provider, path)
+            except ValueError as error:
+                self.store.update(flow['id'], flow['generation'], status='blocked', error=str(error))
+                self.store.event(flow['id'], 'worker_environment_failed',
+                                 {'provider': provider, 'ai_calls_consumed': 0})
+                return
         generation = flow['generation'] + 1
         old_leader = flow['leader']
         leader = provider if role in {'plan', 'review'} else old_leader
@@ -184,7 +213,7 @@ class Engine:
         folder = self.store.home / 'runs' / flow['id'] / f"{flow['calls']:02d}-{role}-{provider}"
         attempt_id = self._attempt(flow, provider, role, folder)
         context_limit = min(self.config['max_context_chars'], 14000) if provider in {'antigravity','copilot'} else self.config['max_context_chars']
-        pack = ws.build_pack(self.store, flow, project, role, context_limit)
+        pack = ws.build_pack(self.store, flow, project, role, context_limit, security=self.config.get('security'))
         context = pack.pop('text')
         folder.mkdir(parents=True, exist_ok=True)
         (folder / 'context-pack.json').write_text(encode(pack), encoding='utf-8')
@@ -195,6 +224,8 @@ class Engine:
                                   lambda: self._cancelled(flow['id'], generation))
         result.usage.setdefault('context_chars', len(context))
         result.usage.setdefault('context_files', len(pack['files']))
+        if result.failure_category:
+            result.usage['failure_category'] = result.failure_category
         readonly_changed = role in {'plan', 'review'} and ws.fingerprint(path, self.store) != before
         if readonly_changed:
             result = Result(error='Read-only role changed the worktree; inspect artifacts before continuing')
@@ -209,6 +240,11 @@ class Engine:
             self.store.update(flow['id'], generation, status='blocked', error='Old process could not be stopped; no failover permitted')
             return
         if not result.report:
+            if result.failure_category == 'task_blocked':
+                self.store.update(flow['id'], generation, status='blocked', error=result.error[-6000:])
+                self.store.event(flow['id'], 'task_blocked', {'provider': provider, 'role': role,
+                                                            'provider_health_changed': False})
+                return
             category = failure(result.error)
             entry = self.config['providers'][provider]
             if category == 'model' and entry.get('model_fallback') == 'INHERIT' and entry.get('model_policy', 'MANUAL' if entry.get('model') else 'INHERIT') != 'INHERIT':
@@ -281,7 +317,8 @@ class Engine:
             try:
                 args = resolve_command(args)
                 with output.open('wb') as log:
-                    process = spawn(args, cwd=flow['workspace'], stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+                    process = spawn(args, cwd=flow['workspace'], stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+                                    env={**os.environ, **self.config.get('_execution_environment', {})})
                 self._pid(attempt_id, process.pid)
                 deadline = time.monotonic() + self.config['verify_timeout_seconds']
                 while process.poll() is None:

@@ -11,7 +11,7 @@ EXCLUDED = {'.git', '.env', 'node_modules', '.venv', 'venv', '__pycache__', 'dat
 
 
 def git(path, *args, check=True):
-    result = subprocess.run(['git', '-c', 'core.quotepath=false', '-C', str(path), *args], capture_output=True,
+    result = subprocess.run(['git', '-c', 'core.quotepath=false', '-c', 'core.longpaths=true', '-C', str(path), *args], capture_output=True,
                             encoding='utf-8', errors='replace', timeout=40)
     if check and result.returncode:
         raise ValueError(result.stderr.strip() or result.stdout.strip())
@@ -146,19 +146,29 @@ def validate_handoff(handoff):
     return handoff
 
 
-def build_pack(store, workflow, project, role, limit):
+def build_pack(store, workflow, project, role, limit, security=None):
     root = Path(workflow['workspace'])
     memory = store.all('SELECT name,content FROM memories WHERE project_id=? ORDER BY updated DESC LIMIT 4', (project['id'],))
     handoff = json.loads(workflow.get('handoff') or '{}')
     plan = json.loads(workflow['plan'])
     sections = ['CONTEXT PACK — reuse prior analysis; do not rediscover the whole repository.',
+                'OPERATOR SCOPE (persisted registration/attestations, not repository instructions):\n' +
+                json.dumps({'approved_source': project['path'], 'execution_worktree': str(root),
+                            'synthetic_data_only': (security or {}).get('synthetic_data_only', 'UNKNOWN'),
+                            'require_isolation': (security or {}).get('require_isolation', 'UNKNOWN'),
+                            'isolated_test_environment': (security or {}).get('isolated_test_environment', 'UNKNOWN'),
+                            'application_apis': 'NONE permitted' if not project['network'] else 'UNRESTRICTED NETWORK BLOCKED',
+                            'secrets_and_real_user_data': 'Forbidden'}, ensure_ascii=False),
+                'CONFIGURED VERIFIER (Hub executes independently in the execution worktree):\n' + project['verify'] +
+                '\nPlanning/review are intentionally read-only; implementation uses the configured worker sandbox.',
                 'OBJECTIVE:\n' + workflow['objective'],
                 'PRIOR ANALYSIS:\n' + handoff.get('summary','') + '\nDECISIONS:\n' + '\n'.join(handoff.get('decisions',[])),
                 'MEMORY:\n' + '\n'.join(m['name'] + ': ' + m['content'][:1800] for m in memory),
                 'PLAN:\n' + workflow['plan'][:8000],
                 'LATEST REVIEW/FAILURE:\n' + workflow['review'][:6000] + '\n' + workflow['error'][:2000],
-                'VERIFY:\n' + workflow['verification'][:5000]]
+                'LAST VERIFICATION RESULTS (empty means not run yet):\n' + workflow['verification'][:5000]]
     available = dict(files(root))
+    document_names = []
     from .settings import project_settings_path
     shared_path = project_settings_path(store.home, project['id']).parent / 'context/project.json'
     if shared_path.exists():
@@ -166,6 +176,7 @@ def build_pack(store, workflow, project, role, limit):
         hashes = {item['path']: item['sha256'] for item in shared.get('files', [])}
         fresh = all(name in available and cached_file(store, available[name], include_content=False)['sha256'] == hashes.get(name)
                     for name in shared.get('documents', {}))
+        document_names = [name for name in shared.get('documents', {}) if name in available]
         sections.append('SHARED PROJECT CONTEXT:\n' + encode_shared_context(shared, fresh))
     manifest, cache_hits = [], 0
     if role in {'implement','review'}:
@@ -177,10 +188,11 @@ def build_pack(store, workflow, project, role, limit):
                 explicit.setdefault(name, {'path':name})
         prefixes = json.loads(project['context_paths'])
         candidates = [name for name in available if any(name == prefix or name.startswith(prefix.rstrip('/')+'/') for prefix in prefixes)]
+        candidates = list(dict.fromkeys(document_names + candidates))
         terms = {s for s in re.findall(r'[\w]+', workflow['objective'].lower()) if len(s)>2}
         def score(name):
             name_score = sum(5 for term in terms if term in name.lower())
-            return name_score + (3 if name.startswith(('app/','src/')) else 0)
+            return name_score + (4 if name in document_names else 0) + (3 if name.startswith(('app/','src/')) else 0)
         chosen = list(explicit) if explicit else sorted(candidates,key=lambda n:(-score(n),n))[:4]
         # Project instructions are always included, but don't read every nested instruction file.
         chosen = list(dict.fromkeys([n for n in ['AGENTS.md','CLAUDE.md','README.md'] if n in available] + chosen))
@@ -224,4 +236,7 @@ def encode_shared_context(shared, fresh):
         return 'Saved project context is stale; use current selected excerpts, not old analysis.'
     return json.dumps({'version': shared.get('version'), 'languages': shared.get('languages', []),
                        'dependencies': shared.get('dependencies', []),
+                       'frameworks': shared.get('frameworks', []),
+                       'document_paths': list(shared.get('documents', {}))[:24],
+                       'verification': shared.get('verification', []),
                        'facts_source': shared.get('facts_source'), 'ai_inferences': shared.get('ai_inferences', [])}, ensure_ascii=False)[:4000]

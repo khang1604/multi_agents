@@ -60,25 +60,37 @@ def install_command(home, get_path=None, set_path=None, which=None):
     old = (get_path or user_path)()
     entries = path_entries(old)
     binpath = str(target.parent)
+    source_key = os.path.normcase(os.path.normpath(str(root)))
+    retired = [entry for entry in entries if os.path.normcase(os.path.normpath(entry.rstrip('\\/'))) == source_key]
+    # The old installer put the entire checkout on PATH, exposing both hub V1
+    # and an unpinned ma launcher. Keep just the owned interpreter/home launcher.
+    keep = [entry for entry in entries if os.path.normcase(os.path.normpath(entry.rstrip('\\/')))
+            not in {source_key, os.path.normcase(os.path.normpath(binpath))}]
+    desired_path = ';'.join([binpath] + keep)
     added = os.path.normcase(os.path.normpath(binpath)) not in {os.path.normcase(os.path.normpath(p.rstrip('\\/'))) for p in entries}
     target.parent.mkdir(parents=True, exist_ok=True)
     existed = target.exists()
     record = home / 'runtime/installation.json'
     prior_ownership = json.loads(record.read_text(encoding='utf-8')) if record.exists() else {}
+    path_backup = None
     try:
         target.write_bytes(body.encode('utf-8'))
-        if added:
-            (set_path or user_path)(';'.join([binpath] + entries))
+        if desired_path != old:
+            backup_path = home / 'runtime/path-before-launcher-normalization.json'
+            path_backup = atomic_json(backup_path, {'user_path': old, 'retired_source_entries': retired})
+            (set_path or user_path)(desired_path)
         atomic_json(record, {'launcher': str(target),
                     'sha256': hashlib.sha256(target.read_bytes()).hexdigest(), 'path_added': added or prior_ownership.get('path_added', False),
-                    'bin': binpath, 'source': str(root)})
+                    'bin': binpath, 'source': str(root), 'retired_source_entries': retired,
+                    'path_backup': str(backup_path) if desired_path != old else prior_ownership.get('path_backup')})
     except BaseException:
-        if added:
+        if desired_path != old:
             (set_path or user_path)(old)
         if not existed:
             target.unlink(missing_ok=True)
         raise
-    return {'installed': str(target), 'user_path_added': added, 'note': 'Open a new terminal. Existing hub commands remain unchanged.'}
+    return {'installed': str(target), 'user_path_added': added, 'retired_source_entries': len(retired),
+            'note': 'Open a new terminal. One pinned ma launcher; legacy hub remains callable by explicit path.'}
 
 
 def uninstall(home, get_path=None, set_path=None):

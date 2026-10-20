@@ -39,6 +39,14 @@ unsupported; Unicode and spaces are supported.
 
 ## Discovery and authentication
 
+All `ma` commands show compact plain text by default, including setup and logs.
+For scripts or full diagnostics, append `--json` (for example `ma config --json`).
+Existing scripts parsing the former JSON defaults must add this flag. Interactive
+setup/configure remain plain text; `mcp` keeps its JSON-RPC protocol and `mcp-config`
+keeps importable JSON. `diff` shows the requested patch; use `diff --json` for export.
+Monitoring shows the latest three attempts and two events without raw JSON payloads;
+use `status --json` to obtain the full persisted snapshot.
+
 ```powershell
 ma agents list
 ma agents list --check
@@ -48,7 +56,10 @@ ma doctor
 ```
 
 Agent lists use one header and one line per agent, including enabled state,
-discovery state, authentication and model policy. Add `--json` for full diagnostics;
+discovery state, authentication, model policy and a short Vietnamese reason. Reasons
+distinguish disabled agents, missing CLI/PATH, missing login, unverified login,
+probe errors and an unrecognized adapter. UNKNOWN is not proof of a failed login.
+Add `--json` for full diagnostics;
 `--check` still caches all details. READY does not confirm quota or a live model call.
 
 Without `--check`, discovery only resolves executable paths. Checks run bounded

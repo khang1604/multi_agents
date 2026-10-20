@@ -22,6 +22,52 @@ from agenthub.lifecycle import install_command, uninstall, path_entries
 from agenthub.wizard import checkbox, configure
 
 
+class PresentationTests(unittest.TestCase):
+    def test_nested_context_is_bounded_without_dumping_source_documents(self):
+        from agenthub.presentation import compact
+        value = {'root': 'synthetic/repo', 'documents': {'README.md': 'SOURCE MARKER'},
+                 'files': [{'path': str(i)} for i in range(500)], 'security': {'synthetic_data_only': True}}
+        view = compact(value)
+        self.assertNotIn('SOURCE MARKER', view)
+        self.assertNotIn('{', view)
+        self.assertIn('500 items', view)
+        self.assertIn('synthetic_data_only=yes', view)
+        self.assertLessEqual(len(view.splitlines()), 9)
+
+    def test_workflow_summary_retains_error_delivery_and_budget(self):
+        from agenthub.presentation import compact
+        view = compact(dict(id='fixture', phase='verify', status='blocked', leader='codex',
+                            calls=2, max_calls=3, error='synthetic failure', delivery='fixture.zip',
+                            events=[{'data': 'large payload'}] * 100))
+        self.assertIn('2/3', view)
+        self.assertIn('synthetic failure', view)
+        self.assertIn('fixture.zip', view)
+        self.assertNotIn('large payload', view)
+        self.assertEqual(len(view.splitlines()), 5)
+
+    def test_export_flag_available_for_noninteractive_commands(self):
+        from agenthub.cli import parser
+        for command in (['init'], ['doctor'], ['config'], ['context'], ['projects', 'list'],
+                        ['agents', 'models'], ['run', 'fixture task'], ['logs'], ['diff'],
+                        ['status'], ['cancel'], ['retry'], ['start'], ['update'],
+                        ['integrations', 'command', 'vscode'], ['demo', '--simulate']):
+            with self.subTest(command=command):
+                self.assertTrue(parser().parse_args([*command, '--json']).json)
+
+    def test_monitor_limits_history_and_formats_events_without_json(self):
+        from agenthub.monitor import render
+        state = dict(id='fixture', status='completed', phase='review', calls=2, max_calls=3,
+                     repairs=0, max_repairs=3, created=0, updated=1,
+                     attempts=[dict(provider='codex', status='completed', phase='plan', usage={})] * 50,
+                     verification={'checks': [{'exit_code': 0, 'command': ['synthetic']}] * 50},
+                     events=[dict(kind='fixture_event', data={'reason': 'synthetic'}, created=0)] * 50)
+        view = render(state)
+        self.assertEqual(view.count('fixture_event'), 2)
+        self.assertNotIn('{', view)
+        self.assertIn('50/50 passed', view)
+        self.assertLessEqual(len(view.splitlines()), 11)
+
+
 class AgentListTests(unittest.TestCase):
     def rows(self):
         return [dict(agent=name, enabled=name != 'claude', state='NOT_INSTALLED',
@@ -63,10 +109,30 @@ class AgentListTests(unittest.TestCase):
         rows[1]['authentication'] = 'NOT_AUTHENTICATED'
         text = agent_table(rows)
         self.assertEqual(len(text.splitlines()), 5)
-        self.assertTrue(all(len(line) <= 51 for line in text.splitlines()))
+        self.assertTrue(all(len(line) <= 79 for line in text.splitlines()))
         self.assertNotIn('\x1b', text)
         self.assertIn('OK', text)
         self.assertIn('NO', text)
+
+    def test_short_reasons_distinguish_missing_disabled_auth_and_probe_limits(self):
+        from agenthub.cli import agent_reason
+        cases = [
+            ({'enabled': False, 'state': 'READY'}, 'Đã tắt trong cấu hình'),
+            ({'state': 'NOT_INSTALLED'}, 'Không tìm thấy CLI/PATH'),
+            ({'state': 'NOT_INSTALLED', 'ide_installed': True}, 'Có IDE, thiếu CLI/PATH'),
+            ({'state': 'INSTALLED', 'authentication': 'NOT_AUTHENTICATED'}, 'Chưa đăng nhập'),
+            ({'state': 'INSTALLED', 'authentication': 'UNKNOWN'}, 'Chưa kiểm tra: --check'),
+            ({'state': 'UNKNOWN'}, 'Chưa xác minh đăng nhập'),
+            ({'state': 'UNKNOWN', 'reason': 'untrusted raw diagnostic'}, 'Chưa xác minh đăng nhập'),
+            ({'state': 'UNAVAILABLE', 'reason': 'Version probe failed'}, 'Lỗi kiểm tra phiên bản'),
+            ({'state': 'UNAVAILABLE', 'reason': 'untrusted raw diagnostic'}, 'CLI lỗi hoặc timeout'),
+            ({'state': 'AUTHENTICATED'}, 'Chưa nhận diện adapter'),
+            ({'state': 'READY'}, 'Sẵn sàng; chưa thử AI'),
+            ({'state': 'READY', 'live_verified': True}, 'Đã xác minh chạy AI'),
+        ]
+        for changes, expected in cases:
+            with self.subTest(changes=changes):
+                self.assertEqual(agent_reason(dict(self.rows()[0], **changes)), expected)
 
 
 class RegistryTests(unittest.TestCase):
@@ -233,6 +299,21 @@ class LocalTests(unittest.TestCase):
         result = self.cli('init', home=home)
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(home.exists())
+
+    def test_cli_plain_defaults_and_explicit_json_remain_compatible(self):
+        for command in (('init',), ('config',), ('doctor', '--offline'), ('agents', 'models'),
+                        ('projects', 'list')):
+            with self.subTest(command=command):
+                plain = self.cli(*command)
+                structured = self.cli(*command, '--json')
+                self.assertEqual(plain.returncode, 0, plain.stderr)
+                self.assertEqual(structured.returncode, 0, structured.stderr)
+                self.assertIsNotNone(json.loads(structured.stdout))
+                self.assertTrue(plain.stdout.strip())
+                self.assertNotIn('{', plain.stdout)
+                self.assertLessEqual(len(plain.stdout.splitlines()), 9)
+        exported = self.cli('mcp-config')
+        self.assertIn('multi_agents', json.loads(exported.stdout)['mcpServers'])
 
     def test_context_excludes_secret_and_appsettings_files(self):
         (self.source / '.env').write_text('synthetic secret marker')
@@ -476,7 +557,7 @@ class LocalTests(unittest.TestCase):
         if os.name != 'nt': self.skipTest('Windows .cmd launcher only')
         repo = self.base/'Dự án có dấu'; repo.mkdir(); git(repo, 'init')
         # The source launcher is invoked directly; no user PATH registration occurs.
-        result = subprocess.run(['cmd.exe', '/d', '/c', str(ROOT/'ma.cmd'), '--home', str(self.hub.store.home), 'init'],
+        result = subprocess.run(['cmd.exe', '/d', '/c', str(ROOT/'ma.cmd'), '--home', str(self.hub.store.home), 'init', '--json'],
                                 cwd=repo, capture_output=True, encoding='utf-8', errors='replace', timeout=20,
                                 env={**os.environ, 'PATH': str(Path(sys.executable).parent) + ';' + str(Path(sys.executable).parent.parent/'Launcher') + ';' + os.environ.get('PATH', '')})
         self.assertEqual(result.returncode, 0, result.stderr)

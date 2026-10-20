@@ -2,6 +2,13 @@
 
 ## V2 — Windows, 2026-10-20
 
+Bản hiển thị CLI ngắn và lý do agent: **116 unittest pass** trong 57.789 giây.
+Các lệnh ma mặc định dùng văn bản, hỗ trợ --json cho script/chẩn đoán đầy đủ;
+setup giữ tương tác văn bản, MCP giữ JSON-RPC và mcp-config giữ JSON nhập vào IDE.
+Monitor giới hạn lịch sử, logs hiện tóm tắt, diff giữ patch cần xem. Cột lý do phân
+biệt đã tắt, thiếu CLI/PATH, thiếu đăng nhập, chưa xác minh, lỗi probe và adapter.
+Regression dùng repo synthetic và probe giả; không gọi model, không sửa cấu hình thật.
+
 Bản rút gọn `ma agents list`: **110 unittest pass** trong 57.986 giây. Mặc định
 hiển thị một dòng tiêu đề và một dòng mỗi agent; `--json` giữ đầy đủ chẩn đoán.
 Kiểm thử probe giả xác minh `--check` vẫn lưu đủ cache, trạng thái UNKNOWN/disabled

@@ -14,13 +14,34 @@ from .project_context import initialize, get_context, unregister, is_removed
 from .service import start_daemon, stop_daemon, daemon_status
 
 
-def output(value):
-    print(json.dumps(value, ensure_ascii=False, indent=2))
+def output(value, json_mode=False):
+    from .presentation import compact
+    print(json.dumps(value, ensure_ascii=False, indent=2) if json_mode else compact(value))
+
+
+def agent_reason(row):
+    """Explain only verified discovery facts, without echoing probe output."""
+    if not row.get('enabled'):
+        return 'Đã tắt trong cấu hình'
+    state = row.get('state', 'UNKNOWN')
+    if state == 'NOT_INSTALLED':
+        return 'Có IDE, thiếu CLI/PATH' if row.get('ide_installed') else 'Không tìm thấy CLI/PATH'
+    if state == 'UNAVAILABLE':
+        return 'Lỗi kiểm tra phiên bản' if row.get('reason') == 'Version probe failed' else 'CLI lỗi hoặc timeout'
+    if row.get('authentication') == 'NOT_AUTHENTICATED':
+        return 'Chưa đăng nhập'
+    if state == 'READY':
+        return 'Đã xác minh chạy AI' if row.get('live_verified') else 'Sẵn sàng; chưa thử AI'
+    if state == 'AUTHENTICATED':
+        return 'Chưa nhận diện adapter'
+    if state == 'INSTALLED' and row.get('authentication') == 'UNKNOWN' and not row.get('reason'):
+        return 'Chưa kiểm tra: --check'
+    return 'Chưa xác minh đăng nhập'
 
 
 def agent_table(rows):
     """Bounded terminal summary; the registry and JSON retain full diagnostics."""
-    widths = (11, 3, 15, 7, 7)
+    widths = (11, 3, 15, 7, 7, 26)
 
     def line(values):
         cells = []
@@ -31,11 +52,11 @@ def agent_table(rows):
             cells.append(clean.ljust(width))
         return '  '.join(cells).rstrip()
 
-    result = [line(('AGENT', 'ON', 'STATE', 'AUTH', 'POLICY'))]
+    result = [line(('AGENT', 'ON', 'STATE', 'AUTH', 'POLICY', 'LÝ DO'))]
     for row in rows:
         auth = {'AUTHENTICATED': 'OK', 'NOT_AUTHENTICATED': 'NO'}.get(row.get('authentication'), 'UNKNOWN')
         result.append(line((row['agent'], 'ON' if row.get('enabled') else 'OFF',
-                            row.get('state', 'UNKNOWN'), auth, row.get('model_policy', 'INHERIT'))))
+                            row.get('state', 'UNKNOWN'), auth, row.get('model_policy', 'INHERIT'), agent_reason(row))))
     return '\n'.join(result)
 
 
@@ -87,6 +108,16 @@ def parser():
     update = sub.add_parser('update'); update.add_argument('--apply', action='store_true')
     migrate = sub.add_parser('migrate'); migrate.add_argument('--from', dest='source', required=True)
     demo = sub.add_parser('demo'); demo.add_argument('--simulate', action='store_true', required=True)
+    def json_options(current):
+        children = [action for action in current._actions if isinstance(action, argparse._SubParsersAction)]
+        if children:
+            for action in children:
+                for child in action.choices.values():
+                    json_options(child)
+        elif '--json' not in current._option_string_actions:
+            if current.prog.split()[-1] not in {'setup', 'configure', 'mcp', 'mcp-config'}:
+                current.add_argument('--json', action='store_true', help='Full structured output')
+    json_options(p)
     return p
 
 
@@ -135,9 +166,11 @@ def menu(hub):
 
 def main(argv=None):
     args = parser().parse_args(argv)
+    def show(value):
+        output(value, getattr(args, 'json', False))
     if args.command == 'migrate':
         from .lifecycle import migrate_legacy
-        output(migrate_legacy(args.source, args.home)); return
+        show(migrate_legacy(args.source, args.home)); return
     if args.command == 'init':
         from .discovery import repository_root
         from .project_context import outside_repository
@@ -148,13 +181,13 @@ def main(argv=None):
         if not sys.stdin.isatty():
             parser().print_help(); return
         menu(hub)
-    elif command == 'init': output(initialize(hub, args.path, args.name, json.loads(args.verify) if args.verify else None))
+    elif command == 'init': show(initialize(hub, args.path, args.name, json.loads(args.verify) if args.verify else None))
     elif command == 'setup':
         from .wizard import run
         run(hub, args.check)
     elif command == 'doctor':
         import shutil
-        output({'python': sys.version.split()[0], 'git': shutil.which('git'), 'home': str(hub.store.home),
+        show({'python': sys.version.split()[0], 'git': shutil.which('git'), 'home': str(hub.store.home),
                 'daemon': daemon_status(hub.store.home), 'agents': discover(hub.config, not args.offline),
                 'note': 'Auth status is not proof of quota or live execution. No IDE credential scraping.'})
     elif command == 'agents':
@@ -164,20 +197,20 @@ def main(argv=None):
         elif args.action == 'list':
             rows = discover(hub.config, args.check)
             if args.check: atomic_json(hub.store.home / 'agent-registry.json', rows)
-            if args.json: output(rows)
+            if args.json: show(rows)
             else: print(agent_table(rows))
         elif args.action in {'enable', 'disable'}:
-            output(update_provider(hub, args.agent, {'enabled': args.action == 'enable'}, args.project))
+            show(update_provider(hub, args.agent, {'enabled': args.action == 'enable'}, args.project))
         elif args.action == 'models':
             from .registry import model_info
-            output({n: model_info(hub.config, n, hub.store.home) for n in hub.config['providers'] if not args.agent or n == args.agent})
+            show({n: model_info(hub.config, n, hub.store.home) for n in hub.config['providers'] if not args.agent or n == args.agent})
         elif args.action == 'model':
             changes = {'model_policy': args.policy, 'model': args.model, 'model_fallback': args.fallback}
             cache = hub.store.home / 'agent-registry.json'
             if cache.exists():
                 rows = json.loads(cache.read_text(encoding='utf-8'))
                 changes['model_catalog'] = next((r['model_catalog'] for r in rows if r['agent'] == args.agent), [])
-            output(update_provider(hub, args.agent, changes, args.project))
+            show(update_provider(hub, args.agent, changes, args.project))
     elif command == 'config':
         if args.allow_mcp_config is not None or args.default_client is not None:
             from .platforms import FileLock
@@ -188,13 +221,13 @@ def main(argv=None):
                 if args.default_client is not None:
                     hub.config['default_client'] = None if args.default_client == 'none' else args.default_client
                 atomic_json(hub.store.home / 'config.json', hub.config)
-        output({'home': str(hub.store.home), 'security': hub.config['security'], 'auto': hub.config['auto'],
+        show({'home': str(hub.store.home), 'security': hub.config['security'], 'auto': hub.config['auto'],
                 'permissions': hub.config.get('permissions', {}), 'default_client': hub.config.get('default_client'),
                 'note': 'Provider login credentials remain with each official CLI.'})
     elif command == 'projects':
-        if args.action == 'remove': output(unregister(hub, args.project))
-        else: output([p for p in hub.store.all('SELECT * FROM projects') if not is_removed(hub.store.home, p['id'])])
-    elif command == 'context': output(get_context(hub, args.project or current_project(hub)))
+        if args.action == 'remove': show(unregister(hub, args.project))
+        else: show([p for p in hub.store.all('SELECT * FROM projects') if not is_removed(hub.store.home, p['id'])])
+    elif command == 'context': show(get_context(hub, args.project or current_project(hub)))
     elif command == 'run':
         if args.project:
             project, objective = args.project, ' '.join(args.request)
@@ -202,26 +235,39 @@ def main(argv=None):
             project, objective = args.request
         else:
             project, objective = current_project(hub), ' '.join(args.request)
-        output(hub.start(project, objective, args.request_key or uuid.uuid4().hex, args.max_calls, args.mode, launch=not args.no_start))
+        show(hub.start(project, objective, args.request_key or uuid.uuid4().hex, args.max_calls, args.mode, launch=not args.no_start))
     elif command == 'status':
         if not args.workflow_id and not hub.store.one('SELECT id FROM workflows LIMIT 1'):
-            output({'daemon': daemon_status(hub.store.home), 'workflows': []}); return
+            show({'daemon': daemon_status(hub.store.home), 'workflows': []}); return
         from .monitor import render
         workflow_id = latest(hub, args.workflow_id)
         try:
             while True:
                 state = hub.status(workflow_id)
-                if args.json: output(state)
+                if args.json: show(state)
                 else: print(render(state), flush=True)
                 if not args.watch or state['status'] in {'completed', 'blocked', 'cancelled', 'needs_review'}: break
                 time.sleep(2)
         except KeyboardInterrupt:
             print('Monitor closed; workflow continues independently.')
-    elif command in {'logs', 'diff'}:
-        import hub as legacy
-        legacy.main(['--home', str(hub.store.home), command, latest(hub, args.workflow_id)])
-    elif command == 'cancel': output(hub.store.cancel(latest(hub, args.workflow_id)))
-    elif command == 'retry': output(hub.retry(latest(hub, args.workflow_id), args.extra_calls))
+    elif command == 'logs':
+        show(hub.store.all('SELECT provider,phase,status,artifact,error,usage FROM attempts WHERE workflow_id=? ORDER BY created',
+                           (latest(hub, args.workflow_id),)))
+    elif command == 'diff':
+        from .workspace import diff
+        row = hub.store.workflow(latest(hub, args.workflow_id))
+        if row.get('delivery') and not Path(row['workspace'] or '').exists():
+            import zipfile
+            with zipfile.ZipFile(row['delivery']) as archive:
+                changes = archive.read('changes.patch').decode('utf-8', errors='replace')
+        elif row['workspace']:
+            changes = diff(row['workspace'])
+        else:
+            raise ValueError('Workflow has no worktree/delivery yet')
+        if args.json: show({'patch': changes, 'delivery': row.get('delivery')})
+        else: print(changes or 'No changes.')
+    elif command == 'cancel': show(hub.store.cancel(latest(hub, args.workflow_id)))
+    elif command == 'retry': show(hub.retry(latest(hub, args.workflow_id), args.extra_calls))
     elif command in {'start', 'stop', 'restart'}:
         if command == 'restart':
             stop_daemon(hub.store.home)
@@ -229,27 +275,27 @@ def main(argv=None):
             while daemon_status(hub.store.home) != 'stopped':
                 if time.monotonic() > deadline: raise ValueError('Daemon still stopping; no duplicate daemon started')
                 time.sleep(.2)
-        output(stop_daemon(hub.store.home) if command == 'stop' else start_daemon(hub.store.home))
+        show(stop_daemon(hub.store.home) if command == 'stop' else start_daemon(hub.store.home))
     elif command == 'mcp':
         from .mcp import serve
         serve(hub.store.home, client=args.client)
     elif command == 'mcp-config':
         from .integrations import server
-        output({'mcpServers': {'multi_agents': server(hub.store.home, 'vscode')}})
+        output({'mcpServers': {'multi_agents': server(hub.store.home, 'vscode')}}, True)
     elif command == 'integrations':
         from .integrations import install_client, remove_client, integration_plan
-        output(remove_client(hub.store.home, args.client) if args.action == 'remove' else
+        show(remove_client(hub.store.home, args.client) if args.action == 'remove' else
                install_client(hub.store.home, args.client, args.apply) if args.action == 'install' else integration_plan(hub.store.home, args.client))
     elif command == 'install-command':
         from .lifecycle import install_command
-        output(install_command(hub.store.home))
+        show(install_command(hub.store.home))
     elif command == 'uninstall':
         from .lifecycle import uninstall
         ensure_idle(hub.store)
-        output(uninstall(hub.store.home))
+        show(uninstall(hub.store.home))
     elif command == 'update':
         from .lifecycle import update_source
-        output(update_source(ROOT, args.apply))
+        show(update_source(ROOT, args.apply))
     elif command == 'demo':
         from .simulation import simulate
-        output(simulate())
+        show(simulate())

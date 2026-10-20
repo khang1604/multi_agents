@@ -139,16 +139,17 @@ def _run(hub, check=True):
     selected = checkbox(list(hub.config['providers']),
                         [n for n, e in hub.config['providers'].items() if e.get('enabled')])
     policies = collect_preferences(hub.config, selected, results)
-    print(json.dumps(configure(hub, selected, policies), ensure_ascii=False, indent=2))
+    from .presentation import compact
+    print(compact(configure(hub, selected, policies)))
     if os.name == 'nt' and input('Install owned ma launcher in user PATH? [y/N]: ').lower() == 'y':
         from .lifecycle import install_command
-        print(install_command(hub.store.home))
+        print(compact(install_command(hub.store.home)))
     from .integrations import CLIENTS, install_client, integration_plan
     client = input('MCP client (' + ','.join(CLIENTS) + '; blank skips): ').strip()
     if client:
-        print(json.dumps(integration_plan(hub.store.home, client), ensure_ascii=False, indent=2))
+        print(compact(integration_plan(hub.store.home, client)))
         if input('Apply this external client configuration with backup? [y/N]: ').lower() == 'y':
-            print(install_client(hub.store.home, client, apply=True))
+            print(compact(install_client(hub.store.home, client, apply=True)))
     print('Setup complete. No security flags changed. Next: cd <approved project>; ma init; ma')
 
 

@@ -4,3 +4,4 @@ __pycache__/
 *.sqlite3*
 *.local.json
 *.backup-*
+*.local.md

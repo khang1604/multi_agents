@@ -4,8 +4,8 @@
 
 Portable setup/launcher update: **175 cases, 168 passed, 7 Windows-only skipped**.
 Actual Ubuntu setup/init, MCP/18 tools, two completed model-backed workflows, delivery
-integrity and exported behavior were checked separately from the suite. Five Hub CLI
-calls used Codex/Copilot; one Antigravity frontend attempt hit real quota (6 total).
+integrity and exported behavior were checked separately from the suite. Codex implementation and Copilot review were observed with real providers;
+other providers and host-chat quota behavior are not certified by those runs.
 UI prompt dispatch and exhausted-host chat operation are **not accepted** from this
 result. See [Ubuntu readiness evidence](docs/UBUNTU_READINESS.md) for seven-layer
 coverage, exact limits and filming gates. Default provider commands are machine-neutral

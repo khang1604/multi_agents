@@ -1,26 +1,63 @@
 # Multi Agents
 
-Hub mã nguồn mở điều phối Antigravity, Claude, Codex và Copilot qua CLI đã đăng nhập.
-Bạn giao việc trong chat; Hub chọn agent, giữ tiến độ, kiểm tra thay đổi và đổi leader
-khi lỗi/quota. Core dùng Python standard library + Git; không cần cài đủ provider.
+Dùng nhiều công cụ AI để cùng làm một dự án, đỡ phải tự chuyển việc qua lại.
+Bạn cài một lần, mở dự án cần làm rồi nhập yêu cầu. Multi Agents giúp giao việc,
+nhớ tiến độ, kiểm tra kết quả và đổi sang công cụ khác khi có thể.
 
-Lấy cảm hứng từ [Maestro](https://github.com/RunMaestro/Maestro),
-[agent-intern](https://github.com/SinanTufekci/agent-intern),
-[agent-deck](https://github.com/asheshgoplani/agent-deck) và
-[AI Maestro](https://github.com/23blocks-OS/ai-maestro), kết hợp ý tưởng cá nhân:
-setup một lần, init một lệnh, giao việc trong chat; tự đổi leader, giữ checkpoint
-và giới hạn lượt CLI để giảm thao tác và lãng phí quota.
+Hỗ trợ **Codex, Claude Code, Copilot CLI và Antigravity CLI**. Không cần cài đủ cả bốn.
+Codex và Claude có thể sửa code; cả bốn đều có thể lập kế hoạch hoặc xem lại thay đổi.
+CLI là bản chạy bằng dòng lệnh; có ứng dụng hay extension chưa chắc đã có CLI.
 
-**Đang phát triển — chưa hoàn thành.** Chỉ nghiệm thu khi **setup → init → prompt**
-chạy trơn tru trên Windows/Ubuntu và mọi khung chat mục tiêu khi chat còn hoặc hết
-quota. Hiện chưa có bằng chứng đạt toàn bộ tiêu chí này.
+**Dự án vẫn đang hoàn thiện.** Một số luồng đã chạy bằng AI thật, nhưng chưa kiểm
+đầy đủ trên mọi máy và mọi ứng dụng chat. Đặc biệt, chưa thể hứa rằng chat hết quota
+thì vẫn gửi được yêu cầu mới. [Xem phần đã thử và còn thiếu](VERIFICATION.md).
 
-## Dùng theo 3 bước
+## Dự án giúp được gì?
 
-Cần Git, Python ≥ 3.11 và một coding CLI Codex/Claude đã đăng nhập. Chỉ dùng source
-được phép, dữ liệu giả và API test đã khai báo; đọc [quy tắc](GLOBAL_RULES.md).
+| Bạn muốn… | Multi Agents giúp thế nào? |
+|---|---|
+| Dùng những AI mình đang có | Tìm CLI đã cài và cho bạn chọn công cụ muốn dùng. Không bắt cài đủ bốn. |
+| Bớt tự chuyển việc giữa các AI | Giao phần lập kế hoạch, viết code và xem lại kết quả cho công cụ phù hợp. |
+| AI lỗi thì có công cụ khác làm tiếp | Lưu tiến độ rồi thử công cụ khác còn dùng được. Nếu không còn công cụ phù hợp, sẽ chờ hoặc báo cần bạn xử lý. |
+| Đóng chat rồi quay lại không phải giải thích từ đầu | Lưu việc đang làm, quyết định đã có và lỗi còn lại trên máy. |
+| Đỡ tốn quota cho việc nhỏ | Việc đơn giản dùng ít bước hơn; việc khó có thêm bước kiểm tra. Không tự tăng số lượt đã cho phép. |
+| Không để AI nào cũng đọc lại cả dự án | Chuyển phần phân tích đã có và những đoạn code cần thiết cho lượt sau. AI vẫn có thể cần đọc thêm khi thiếu thông tin. |
+| Biết code làm ra có chạy không | Chạy lệnh kiểm tra của dự án, lưu kết quả rồi cho AI xem lại khi cần. Test pass vẫn chưa chứng minh mọi tính năng đều đúng. |
+| Giữ nguyên code mình đang làm | Sửa trong bản làm việc riêng, không tự ghi đè hay ghép kết quả vào dự án gốc. |
+| Có kết quả rõ ràng để xem lại | Xuất phần code thay đổi và báo cáo thành ZIP. Bạn xem rồi quyết định đưa vào dự án. |
+| Không để file tạm phình mãi | Kiểm gói kết quả trước khi dọn bản làm việc tạm; việc đang chạy hoặc đang chờ được giữ lại. |
+| Hết quota thì làm tiếp sau | Lưu chỗ đang dở và giờ thử lại. Máy và Hub cần hoạt động để tiếp tục; không tự mua thêm lượt. |
+| Giao việc ngay trong chat | Kết nối qua MCP hoặc dùng `@hub` trong Copilot Chat. Từng giao diện vẫn cần chạy thử; không coi việc kết nối thành công là cả luồng đã hoạt động. |
 
-**1. Setup global một lần — Windows:**
+Giới hạn lượt hiện tính theo **số lần chạy CLI**, chưa phải số token hoặc tiền chính xác.
+Một lượt CLI có thể gọi model nhiều lần bên trong.
+
+## Cần chuẩn bị gì?
+
+- Git và **Python 3.11 trở lên**.
+- Ít nhất Codex CLI hoặc Claude Code CLI nếu muốn AI sửa code.
+- Tự đăng nhập những CLI muốn dùng bằng cách chính thức của từng công cụ.
+- Dự án có Git, đã commit phần muốn dùng và có lệnh kiểm tra chạy được.
+- Chỉ dùng code được phép, dữ liệu giả và API test đã được cho phép.
+
+Multi Agents dùng thư viện có sẵn của Python, không cần `pip install` cho phần chính.
+Các CLI AI và thư viện của dự án bạn làm vẫn cần cài riêng.
+
+## Bắt đầu theo 3 bước
+
+### 1. Cài một lần tại thư mục Multi Agents
+
+**Ubuntu:**
+
+```bash
+mkdir -p ~/Project
+cd ~/Project
+git clone https://github.com/khang1604/multi_agents.git
+cd multi_agents
+./setup.sh
+```
+
+**Windows — PowerShell:**
 
 ```powershell
 git clone https://github.com/khang1604/multi_agents.git
@@ -28,107 +65,110 @@ cd multi_agents
 .\setup.ps1
 ```
 
-Có thể chọn đủ bốn agent; thiếu CLI/login/quota vẫn phải được báo đúng. Chọn model policy chung, cài lệnh `ma` và bridge `@hub` cho VS Code Copilot
-Chat. Setup kiểm tra CLI đã chọn; bấm số để đăng nhập chính thức ngay tại setup,
-bấm 0 để tiếp tục. CLI chưa hỗ trợ probe auth giữ UNKNOWN; không tự nhận đã đăng nhập.
-Setup có backup. Mở lại IDE/terminal sau khi cài.
+Nếu đã có folder cùng tên, dùng folder trống khác; đừng xóa thay đổi đang có để cài lại.
+Có thể chạy `python3 ma.py setup` trên Ubuntu hoặc `py -3 ma.py setup` trên Windows
+nếu máy không chạy được file setup. Không cần tắt chính sách bảo mật của máy.
 
-**Ubuntu — setup trong terminal:**
+Làm theo hướng dẫn để chọn AI, cài lệnh `ma` và kết nối ứng dụng chat muốn dùng.
+Bạn có thể giữ lựa chọn model mặc định của từng AI bằng **INHERIT**.
+Setup có chỗ mở đăng nhập chính thức; công cụ chưa xác minh được sẽ ghi **UNKNOWN**,
+không tự nhận là đã đăng nhập hay còn quota.
+
+Trên Ubuntu, nếu chọn cài `ma`, chạy lệnh `export PATH=...` mà setup in ra.
+Nó giúp terminal tìm thấy lệnh vừa cài. Dự án không tự sửa `.bashrc` hoặc `.profile`;
+terminal mới cần PATH đã được bạn cấu hình, hoặc dùng đường dẫn đầy đủ của lệnh `ma`.
+Trên Windows, mở terminal mới sau khi cài. Nếu có yêu cầu, mở lại ứng dụng chat.
+
+### 2. Mở thư mục dự án cần làm rồi chạy init
 
 ```bash
-cd ~/Project/multi_agents
-./setup.sh
-# Nếu muốn gom toàn bộ state vào ~/Project thay cho ~/.local/share:
-python3 ma.py --home ~/Project/multi_agents-demo/home setup
-```
-
-Setup tạo launcher `ma` ghim Python/home. Trên Ubuntu, nó in một lệnh `export PATH=...`;
-chạy lệnh đó trong terminal hiện tại, hoặc dùng đường dẫn launcher tuyệt đối.
-Không tự sửa `.bashrc`, `.profile`, PATH hệ thống hoặc bật autostart.
-Mỗi terminal mới cần export lại nếu bạn chưa chủ động lưu PATH. Source `ma` cũng
-chạy được bằng `./ma`, nhưng launcher đã cài giữ đúng home cấu hình đã chọn.
-Hướng dẫn demo và giới hạn đã kiểm chứng: [docs/UBUNTU_DEMO.md](docs/UBUNTU_DEMO.md).
-
-**2. Vào project được phép, chạy một lệnh:**
-
-```powershell
-cd 'C:\Projects\MyApp'
+cd /duong/dan/du-an-cua-ban
 ma init
 ```
 
-Xác nhận scope một lần cho project. Init nhận diện verifier/SDK, probe sandbox Codex
-Windows không gọi model, chạy baseline trong worktree riêng và kiểm tra MCP. Cần
-commit sạch và dependency sẵn sàng; thiếu thì báo nguyên nhân trước khi gọi AI.
-Không tự commit source hoặc tắt sandbox để chạy tiếp.
+Bạn xác nhận đây là code được phép và chỉ có dữ liệu giả. Multi Agents ghi nhận
+đúng dự án, tìm lệnh kiểm tra và chạy kiểm tra ban đầu trong bản làm việc riêng.
+Thiếu điều kiện nào thì báo điều đó; không tự commit hoặc xóa thay đổi của bạn.
 
-**3. Mở chat trong project và nhập prompt bình thường:**
+Không cần chép Multi Agents vào từng dự án. Cài ở một nơi rồi dùng cho nhiều dự án.
 
-Ví dụ trong Antigravity, sau khi setup đã kết nối MCP `multi_agents` và IDE đã refresh:
+### 3. Nhập yêu cầu trong chat như bình thường
+
+Ví dụ:
 
 ```text
-Thêm chức năng lọc công việc theo trạng thái và từ khóa, giữ tương thích và bổ sung test.
+Thêm chức năng lọc công việc theo trạng thái và từ khóa. Giữ cách gọi cũ và bổ sung test.
 ```
 
-MCP cung cấp chỉ dẫn để client khớp đúng project đã `ma init`, lấy checkpoint và giao
-việc cho Hub. Không cần dán prompt điều phối dài hoặc chạy `ma run` cho từng task.
-Client vẫn cần nhận server/tool và tuân theo chỉ dẫn; chưa xác minh UI thì không được
-khẳng định request đã qua Hub. Khi host chat hết quota, request mới có thể bị chặn trước
-khi gọi tool; workflow đã dispatch vẫn do daemon quản lý.
+Ứng dụng chat cần được kết nối với Multi Agents ở bước setup. Trong Copilot Chat,
+chọn `@hub` một lần rồi tiếp tục nhập nội dung trong cuộc chat đó.
+Với chat dùng MCP, ứng dụng cần nhận đúng công cụ của Hub sau khi refresh.
 
-Nếu dùng bridge Copilot Chat trực tiếp, chọn participant `@hub` một lần; participant
-sticky để các lượt sau nhập nội dung bình thường. Đây là lựa chọn khác với chat riêng
-Antigravity, không bắt buộc thay giao diện chat bạn đang dùng. Xem
-[Ubuntu demo](docs/UBUNTU_DEMO.md) và [giới hạn](docs/KNOWN_ISSUES.md).
+**Chỉ khi có mã công việc của Hub mới biết yêu cầu đã được giao.**
+Nếu AI trong chat tự viết code mà không gọi Hub, đó chưa phải luồng Multi Agents.
+Bạn không cần tự chạy `ma run` cho từng việc; lệnh này vẫn có nếu muốn dùng terminal.
 
-## Tính năng hiện có
+## Khi chat hoặc AI hết quota thì sao?
 
-| Tính năng | Hiện trạng |
+- **Việc đã giao cho Hub:** có thể tiếp tục bằng CLI khác còn dùng được.
+- **CLI đang làm hết quota:** Hub lưu tiến độ, tìm công cụ thay thế hoặc chờ thử lại.
+- **Chat chặn yêu cầu mới:** MCP không tự đọc được câu bạn nhập, nên yêu cầu có thể
+  chưa tới Hub. Hiện chưa bảo đảm khắc phục được việc này trên mọi giao diện.
+
+`@hub` được viết để không gọi model của chat trong phần xử lý, nhưng vẫn phải kiểm
+tra xem ứng dụng có cho phần đó chạy khi hết quota hay không. Chưa thử được thì
+không coi là đã hoạt động.
+
+## Muốn xem thử trước khi dùng AI thật?
+
+Tại thư mục Multi Agents, chạy:
+
+```bash
+python3 ma.py demo --simulate
+```
+
+Windows dùng `py -3` thay cho `python3`.
+Demo này giả lập câu trả lời của AI, nhưng vẫn dùng Git, lưu tiến độ và chạy test thật.
+**Không gọi model, không tốn quota.** Nó không chứng minh tài khoản AI đã dùng được.
+
+## Những lệnh hay dùng
+
+| Lệnh | Dùng khi nào? |
 |---|---|
-| Planner, worker, reviewer | Antigravity/Claude/Codex/Copilot plan/review; Codex/Claude sửa code |
-| Tự đổi leader và chờ quota | Cooldown, reset time, checkpoint; không retry vô hạn |
-| Auto mức công việc và budget | Small/standard/complex; giới hạn lượt CLI, không tự tăng |
-| SQLite, memory, handoff | Giữ tiến độ và context có hash, giảm đọc lặp |
-| Worktree, verifier, review, ZIP | Source gốc tách biệt; kiểm tra và bàn giao trước cleanup |
-| Init project | Scope riêng, Gradle lồng thư mục, verifier/SDK, baseline và MCP |
-| CLI gọn | Trạng thái/lý do ngắn; `--json` tùy chọn |
-| Đăng nhập trong setup | Menu số cho CLI đã chọn; quay lại kiểm tra sau login, không đọc token |
-| Kết quả trong chat | Hiện báo cáo đã lưu, finding, verifier và phần review còn mở khi hết budget |
-| Trạng thái tự động | Probe chính thức + phản hồi CLI đã lưu, khớp binary/model; quota hiển thị riêng |
-| Chờ quota và đánh thức | Lịch bền vững, khôi phục khi Hub chạy lại; không gọi sớm hoặc tự tăng lượt |
-| Chat `@hub` | Bridge VS Code Copilot; chưa nghiệm thu UI/quota và mọi IDE |
-| Windows/Ubuntu | Ubuntu: launcher/setup/init và workflow thật Codex/Copilot đã kiểm trên 24.04.5; UI/mọi bản Ubuntu chưa nghiệm thu. Windows: xem VERIFICATION.md |
+| `ma setup` | Muốn đổi lựa chọn AI hoặc kết nối lại ứng dụng chat. |
+| `ma init` | Bắt đầu với một dự án, hoặc kiểm tra lại sau khi sửa môi trường. |
+| `ma agents list --check` | Xem CLI nào có trên máy và thông tin đăng nhập kiểm tra được. |
+| `ma status --watch` | Xem công việc đang đến đâu mà không hỏi AI liên tục. |
+| `ma logs` | Xem lượt nào đã chạy hoặc gặp lỗi. |
+| `ma diff` | Xem phần code thay đổi. |
+| `ma retry ID` | Tiếp tục công việc sau khi xử lý lỗi; không tự cấp thêm lượt. |
+| `ma doctor` | Tìm nguyên nhân khi setup hoặc init báo lỗi. |
+| `ma --help` | Xem các lệnh còn lại. |
 
-## Lệnh và cách dùng
+Trong chat `@hub`, có `/agents`, `/status`, `/watch`, `/retry` và `/cancel`.
+Dừng theo dõi không có nghĩa đã hủy công việc; dùng `/cancel` nếu muốn yêu cầu dừng.
 
-| Lệnh | Công dụng |
-|---|---|
-| `ma setup` | Chạy lại setup global khi cần thay cấu hình/cài đặt |
-| `ma init` | Chuẩn bị project hiện tại; lần đầu hoặc sau khi sửa môi trường |
-| `@hub <prompt>` | Giao việc trong Copilot Chat với budget Auto |
-| `@hub /agents` | Xem agent, không gọi model |
-| `@hub /status` | Xem workflow gần nhất của project |
-| `@hub /watch` | Theo dõi; dừng chat chỉ đóng theo dõi |
-| `@hub /retry` | Tiếp tục sau sửa lỗi, giữ nguyên call cap |
-| `@hub /cancel` | Dừng workflow, giữ checkpoint/code |
-| `ma agents list --check` | Probe CLI chính thức; READY không bảo đảm còn quota |
-| `ma retry ID --at "2026-10-25T13:21:00+07:00" --request-key wake-ID` | Hẹn tiếp tục checkpoint, giữ trần lượt; `--extra-calls N` chỉ khi người dùng cấp thêm |
-| `ma wake` / `ma wake --install --apply` | Kiểm tra hàng đợi không gọi AI / cài đánh thức nền Windows mỗi 5 phút, cần máy bật và user đăng nhập |
-| `ma doctor` | Chẩn đoán khi setup/init báo lỗi |
-| `ma integrations chat --apply` | Cài thêm @hub nếu đã setup bản cũ |
-| `ma integrations install CLIENT --apply` | Cấu hình MCP client có backup |
-| `ma init --verify-command EXECUTABLE ARGS` | Chọn verifier; đặt option này cuối |
-| `ma init --replace-verify --verify-command EXECUTABLE ARGS` | Sửa verifier cũ có backup |
-| `ma init --register-only` | Chỉ đăng ký/refresh; không test baseline, không báo ready |
-| `ma status --watch` / `ma logs` / `ma diff` | Xem tiến độ, lỗi, thay đổi ngoài chat |
-| `ma --help` | Toàn bộ lệnh; thêm `--json` cho script |
+## Dữ liệu và quyền truy cập
 
-Lệnh chat có thể thêm ID, ví dụ `@hub /status abc123`. Project đang có workflow thì
-không tạo task trùng. Provider vẫn cần quota riêng để chạy AI.
+Không dùng dữ liệu khách hàng thật, database thật, `.env`, token hoặc khóa bí mật
+làm đầu vào cho agent. Tên folder có chữ `test` không có nghĩa dữ liệu bên trong là giả.
 
-## Đóng góp
+Quy tắc bằng chữ không thay thế quyền truy cập của hệ điều hành. Nếu cần ngăn truy
+cập ngoài dự án, phải chuẩn bị môi trường cách ly phù hợp. Agent không được tự xác
+nhận điều kiện này hoặc nới quyền để chạy cho xong.
 
-Xem [lỗi đã sửa và phần cần đóng góp](docs/KNOWN_ISSUES.md),
-[hướng dẫn + prompt đầu tiên cho agent](CONTRIBUTING.md) và
-[bằng chứng kiểm thử](VERIFICATION.md). Ưu tiên hoàn thiện 3 bước trước khi thêm tính năng.
+Đọc [GLOBAL_RULES.md](GLOBAL_RULES.md) và [hướng dẫn bảo mật](docs/SECURITY.md) trước
+khi giao việc thật. Đăng nhập nằm ở CLI chính thức; không chia sẻ token với Hub hay chat.
 
-Cấu hình mẫu portable cho đủ 4 CLI: [providers.example.json](examples/config/providers.example.json). Đây là ví dụ providers, không chứa login hay xác nhận security; setup vẫn nhận lựa chọn của người dùng.
+## Đọc thêm
+
+- [Hướng dẫn Ubuntu và cách quay demo](docs/UBUNTU_DEMO.md).
+- [Cấu hình mẫu cho đủ bốn CLI](examples/config/providers.example.json) — không có tài khoản hay đường dẫn máy cá nhân.
+- [Những gì đã chạy thử](VERIFICATION.md) và [phần còn cần làm](docs/KNOWN_ISSUES.md).
+- [Hướng dẫn chi tiết hơn](docs/V2_GUIDE.md), gồm lệnh test riêng và hẹn làm tiếp.
+- [Góp phần phát triển](CONTRIBUTING.md).
+
+Ý tưởng tham khảo từ [Maestro](https://github.com/RunMaestro/Maestro),
+[agent-intern](https://github.com/SinanTufekci/agent-intern),
+[Agent Deck](https://github.com/asheshgoplani/agent-deck) và
+[AI Maestro](https://github.com/23blocks-OS/ai-maestro).

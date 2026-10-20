@@ -127,30 +127,83 @@ def collect_preferences(config, selected, results, ask=None, write=print):
     return policies
 
 
+def login_selected(hub, selected, ask=None, write=print, runner=None, discoverer=None):
+    """Interactive official login only; never inspect auth files or infer success from exit 0."""
+    import subprocess
+    from .registry import discover_agent, execution_command
+    ask = ask or input
+    runner = runner or subprocess.run
+    discoverer = discoverer or discover_agent
+    names = sorted(selected)
+    commands = {'codex': ['login'], 'claude': ['auth', 'login'], 'copilot': ['login'], 'antigravity': []}
+    while names:
+        rows = [discoverer(name, hub.config['providers'][name], check=True) for name in names]
+        if all(row.get('authentication') == 'AUTHENTICATED' for row in rows):
+            write('Các CLI đã chọn đều có xác nhận đăng nhập từ provider.')
+            return rows
+        for number, row in enumerate(rows, 1):
+            auth = row.get('authentication', 'UNKNOWN')
+            label = 'Đã đăng nhập' if auth == 'AUTHENTICATED' else 'Chưa đăng nhập' if auth == 'NOT_AUTHENTICATED' else 'Chưa xác minh đăng nhập'
+            if row['state'] == 'NOT_INSTALLED':
+                label = 'Chưa cài CLI/PATH'
+            write(f'{number}. {row["agent"]} CLI: {label}')
+        write('CLI chưa có probe auth giữ UNKNOWN; mở login không tự chứng minh còn quota.')
+        choice = ask('Chọn số để đăng nhập tại đây; 0 tiếp tục setup: ').strip()
+        if choice == '0':
+            return rows
+        if not choice.isdigit() or not 1 <= int(choice) <= len(names):
+            write('Chọn đúng số trong danh sách hoặc 0.')
+            continue
+        row = rows[int(choice) - 1]
+        if row['state'] == 'NOT_INSTALLED':
+            write('Cài CLI chính thức trước; setup không tự cài provider.')
+            continue
+        name = row['agent']
+        write('Mở đăng nhập chính thức của ' + name + '; hoàn tất rồi thoát CLI để quay lại setup. Không gửi token cho Hub.')
+        try:
+            # Inherit the human terminal for browser/device flow. No capture, shell or credentials.
+            result = runner(execution_command(name, hub.config['providers'][name]) + commands[name])
+            if result.returncode:
+                write('Login chưa hoàn tất; kiểm tra thông báo của CLI. Cấu hình và sandbox được giữ nguyên.')
+        except (OSError, subprocess.SubprocessError):
+            write('Không mở được login CLI; kiểm tra cài đặt/PATH.')
+    return []
+
+
 def _run(hub, check=True):
-    print('MULTI AGENTS — TERMINAL SETUP (no provider install/login or model call)')
+    print('MULTI AGENTS — TERMINAL SETUP (official CLI login menu; no model calls)')
     print('Python:', sys.version.split()[0], 'Home:', hub.store.home)
     import shutil
     if sys.version_info < (3, 11) or not shutil.which('git'):
         raise ValueError('Python >=3.11 and Git are required')
-    results = discover(hub.config, check=check)
+    results = discover(hub.config, check=check, home=hub.store.home)
     for item in results:
         print(item['agent'], item['state'], item['version'], item['authentication'], 'roles=' + ','.join(item['roles']))
     selected = checkbox(list(hub.config['providers']),
                         [n for n, e in hub.config['providers'].items() if e.get('enabled')])
+    if check:
+        results = login_selected(hub, selected)
     policies = collect_preferences(hub.config, selected, results)
     from .presentation import compact
     print(compact(configure(hub, selected, policies)))
-    if os.name == 'nt' and input('Install owned ma launcher in user PATH? [y/N]: ').lower() == 'y':
+    install_queue_wake = False
+    if os.name == 'nt' and input('Install owned ma launcher and automatic queue wake? [y/N]: ').lower() == 'y':
         from .lifecycle import install_command
         print(compact(install_command(hub.store.home)))
+        install_queue_wake = True
     from .integrations import CLIENTS, install_client, integration_plan
     client = input('MCP client (' + ','.join(CLIENTS) + '; blank skips): ').strip()
     if client:
         print(compact(integration_plan(hub.store.home, client)))
         if input('Apply this external client configuration with backup? [y/N]: ').lower() == 'y':
             print(compact(install_client(hub.store.home, client, apply=True)))
-    print('Setup complete. No security flags changed. Next: cd <approved project>; ma init; ma')
+    if input('Install @hub directly in VS Code Copilot Chat (no intermediary model)? [y/N]: ').strip().lower() in {'y', 'yes'}:
+        from .chat_bridge import install
+        print(compact(install(hub.store.home, apply=True)))
+    if install_queue_wake:
+        from .wakeup import install as install_wakeup
+        print(compact(install_wakeup(hub.store.home, apply=True)))
+    print('Setup complete. Next: cd <approved project>; ma init; then Copilot Chat: @hub PROMPT')
 
 
 def run(hub, check=True):

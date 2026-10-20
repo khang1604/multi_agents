@@ -25,11 +25,17 @@ def agent_reason(row):
         return 'Đã tắt trong cấu hình'
     state = row.get('state', 'UNKNOWN')
     if state == 'NOT_INSTALLED':
+        if row.get('agent') == 'copilot':
+            return 'Thiếu CLI; Chat vẫn dùng'
         return 'Có IDE, thiếu CLI/PATH' if row.get('ide_installed') else 'Không tìm thấy CLI/PATH'
     if state == 'UNAVAILABLE':
+        if row.get('cooldown_until'):
+            return row.get('reason', 'Đang cooldown')
         return 'Lỗi kiểm tra phiên bản' if row.get('reason') == 'Version probe failed' else 'CLI lỗi hoặc timeout'
     if row.get('authentication') == 'NOT_AUTHENTICATED':
         return 'Chưa đăng nhập'
+    if row.get('operator_confirmed'):
+        return 'Bạn xác nhận chạy AI'
     if state == 'READY':
         return 'Đã xác minh chạy AI' if row.get('live_verified') else 'Sẵn sàng; chưa thử AI'
     if state == 'AUTHENTICATED':
@@ -52,7 +58,7 @@ def agent_table(rows):
             cells.append(clean.ljust(width))
         return '  '.join(cells).rstrip()
 
-    result = [line(('AGENT', 'ON', 'STATE', 'AUTH', 'POLICY', 'LÝ DO'))]
+    result = [line(('AGENT CLI', 'ON', 'STATE', 'AUTH', 'POLICY', 'LÝ DO'))]
     for row in rows:
         auth = {'AUTHENTICATED': 'OK', 'NOT_AUTHENTICATED': 'NO'}.get(row.get('authentication'), 'UNKNOWN')
         result.append(line((row['agent'], 'ON' if row.get('enabled') else 'OFF',
@@ -66,8 +72,15 @@ def parser():
     sub = p.add_subparsers(dest='command')
     init = sub.add_parser('init', help='Initialize the current approved Git project; no source writes or AI')
     init.add_argument('path', nargs='?', default='.')
-    init.add_argument('--name'); init.add_argument('--verify', help='JSON executable argument arrays')
+    init.add_argument('--name')
+    verify = init.add_mutually_exclusive_group()
+    verify.add_argument('--verify', help='JSON executable argument arrays')
+    verify.add_argument('--verify-command', nargs=argparse.REMAINDER,
+                        help='One verification command and its arguments; place this option last')
     init.add_argument('--refresh', action='store_true', help='Refresh changed local context; init is already idempotent')
+    init.add_argument('--replace-verify', action='store_true', help='Explicitly replace the stored verifier, with backup; omitted command triggers detection')
+    init.add_argument('--register-only', action='store_true', help='Register/refresh without interactive scope or baseline test; no ready claim')
+    init.add_argument('--prepare', action='store_true', help='Confirm scope and run baseline checks; requires interactive terminal')
     setup = sub.add_parser('setup')
     setup.add_argument('--check', dest='check', action='store_true', default=True, help='Official version/auth probes (default); no model calls')
     setup.add_argument('--offline', dest='check', action='store_false', help='Resolve paths only; leave version/auth unknown')
@@ -78,6 +91,10 @@ def parser():
     for action in ('enable', 'disable'):
         ap = ac.add_parser(action); ap.add_argument('agent', choices=SPECS); ap.add_argument('--project')
     models = ac.add_parser('models'); models.add_argument('agent', nargs='?', choices=SPECS)
+    confirm = ac.add_parser('confirm'); confirm.add_argument('agent', choices=SPECS)
+    choice = confirm.add_mutually_exclusive_group(required=True)
+    choice.add_argument('--worked', action='store_true', help='Record readiness after your successful manual AI reply; no model call')
+    choice.add_argument('--revoke', action='store_true', help='Remove your earlier confirmation')
     model = ac.add_parser('model'); model.add_argument('agent', choices=SPECS)
     model.add_argument('policy', choices=['INHERIT', 'AUTO', 'MANUAL']); model.add_argument('--model')
     model.add_argument('--fallback', choices=['INHERIT']); model.add_argument('--project')
@@ -94,15 +111,22 @@ def parser():
     status = sub.add_parser('status'); status.add_argument('workflow_id', nargs='?'); status.add_argument('--watch', action='store_true'); status.add_argument('--json', action='store_true')
     for name in ('logs', 'diff', 'cancel', 'retry'):
         ap = sub.add_parser(name); ap.add_argument('workflow_id', nargs='?')
-        if name == 'retry': ap.add_argument('--extra-calls', type=int, default=0)
+        if name == 'retry':
+            ap.add_argument('--extra-calls', type=int, default=0)
+            ap.add_argument('--at', help='Resume at ISO time with timezone, e.g. 2026-10-25T13:20:17+07:00')
+            ap.add_argument('--request-key', help='Deduplicate a scheduled retry and its call grant')
     for name in ('start', 'stop', 'restart'):
         sub.add_parser(name)
+    wake = sub.add_parser('wake', help='Check due queue without AI; optionally install Windows user watchdog')
+    wake.add_argument('--install', action='store_true')
+    wake.add_argument('--apply', action='store_true')
     mcp = sub.add_parser('mcp'); mcp.add_argument('--client', default='unknown')
     sub.add_parser('mcp-config')
     integration = sub.add_parser('integrations'); ic = integration.add_subparsers(dest='action', required=True)
     for name in ('command', 'install', 'remove'):
         ap = ic.add_parser(name); ap.add_argument('client', choices=['antigravity', 'vscode', 'codex', 'copilot', 'claude'])
         if name == 'install': ap.add_argument('--apply', action='store_true')
+    chat = ic.add_parser('chat'); chat.add_argument('--apply', action='store_true', help='Install the owned @hub participant in VS Code')
     sub.add_parser('install-command')
     sub.add_parser('uninstall')
     update = sub.add_parser('update'); update.add_argument('--apply', action='store_true')
@@ -150,7 +174,7 @@ def menu(hub):
         choice = input('Choose: ').strip()
         if choice == '0': return
         try:
-            if choice == '1': print(agent_table(discover(hub.config)))
+            if choice == '1': print(agent_table(discover(hub.config, home=hub.store.home)))
             elif choice == '2': output(initialize(hub, Path.cwd()))
             elif choice == '3':
                 project = current_project(hub)
@@ -181,24 +205,40 @@ def main(argv=None):
         if not sys.stdin.isatty():
             parser().print_help(); return
         menu(hub)
-    elif command == 'init': show(initialize(hub, args.path, args.name, json.loads(args.verify) if args.verify else None))
+    elif command == 'init':
+        checks = json.loads(args.verify) if args.verify else None
+        if args.verify_command is not None:
+            if not args.verify_command:
+                raise ValueError('Provide an executable and its arguments after --verify-command')
+            checks = [args.verify_command]
+        interactive = sys.stdin.isatty() and sys.stdout.isatty() and not getattr(args, 'json', False) and not args.register_only
+        if args.prepare and not interactive:
+            raise ValueError('--prepare needs an interactive terminal for project scope confirmation')
+        if interactive:
+            from .readiness import initialize_interactive
+            show(initialize_interactive(hub, args.path, args.name, checks, args.replace_verify))
+        else:
+            show(initialize(hub, args.path, args.name, checks, args.replace_verify))
     elif command == 'setup':
         from .wizard import run
         run(hub, args.check)
     elif command == 'doctor':
         import shutil
         show({'python': sys.version.split()[0], 'git': shutil.which('git'), 'home': str(hub.store.home),
-                'daemon': daemon_status(hub.store.home), 'agents': discover(hub.config, not args.offline),
+                'daemon': daemon_status(hub.store.home), 'agents': discover(hub.config, not args.offline, home=hub.store.home),
                 'note': 'Auth status is not proof of quota or live execution. No IDE credential scraping.'})
     elif command == 'agents':
         if args.action == 'configure':
             from .wizard import run
             run(hub)
         elif args.action == 'list':
-            rows = discover(hub.config, args.check)
+            rows = discover(hub.config, args.check, home=hub.store.home)
             if args.check: atomic_json(hub.store.home / 'agent-registry.json', rows)
             if args.json: show(rows)
             else: print(agent_table(rows))
+        elif args.action == 'confirm':
+            from .confirmations import confirm
+            show(confirm(hub, args.agent, args.worked, args.revoke))
         elif args.action in {'enable', 'disable'}:
             show(update_provider(hub, args.agent, {'enabled': args.action == 'enable'}, args.project))
         elif args.action == 'models':
@@ -241,11 +281,15 @@ def main(argv=None):
             show({'daemon': daemon_status(hub.store.home), 'workflows': []}); return
         from .monitor import render
         workflow_id = latest(hub, args.workflow_id)
+        previous = None
         try:
             while True:
                 state = hub.status(workflow_id)
-                if args.json: show(state)
-                else: print(render(state), flush=True)
+                signature = json.dumps(state, sort_keys=True, ensure_ascii=False)
+                if signature != previous:
+                    if args.json: show(state)
+                    else: print(render(state), flush=True)
+                    previous = signature
                 if not args.watch or state['status'] in {'completed', 'blocked', 'cancelled', 'needs_review'}: break
                 time.sleep(2)
         except KeyboardInterrupt:
@@ -267,7 +311,19 @@ def main(argv=None):
         if args.json: show({'patch': changes, 'delivery': row.get('delivery')})
         else: print(changes or 'No changes.')
     elif command == 'cancel': show(hub.store.cancel(latest(hub, args.workflow_id)))
-    elif command == 'retry': show(hub.retry(latest(hub, args.workflow_id), args.extra_calls))
+    elif command == 'retry':
+        scheduled = 0
+        if args.at:
+            from datetime import datetime
+            parsed = datetime.fromisoformat(args.at)
+            if parsed.tzinfo is None:
+                raise ValueError('--at requires an explicit timezone')
+            scheduled = parsed.timestamp()
+        show(hub.retry(latest(hub, args.workflow_id), args.extra_calls,
+                       not_before=scheduled, request_key=args.request_key))
+    elif command == 'wake':
+        from .wakeup import install, wake
+        show(install(hub.store.home, apply=args.apply) if args.install else wake(hub.store.home))
     elif command in {'start', 'stop', 'restart'}:
         if command == 'restart':
             stop_daemon(hub.store.home)
@@ -283,6 +339,10 @@ def main(argv=None):
         from .integrations import server
         output({'mcpServers': {'multi_agents': server(hub.store.home, 'vscode')}}, True)
     elif command == 'integrations':
+        if args.action == 'chat':
+            from .chat_bridge import install
+            show(install(hub.store.home, args.apply))
+            return
         from .integrations import install_client, remove_client, integration_plan
         show(remove_client(hub.store.home, args.client) if args.action == 'remove' else
                install_client(hub.store.home, args.client, args.apply) if args.action == 'install' else integration_plan(hub.store.home, args.client))

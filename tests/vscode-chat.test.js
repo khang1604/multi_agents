@@ -143,3 +143,32 @@ test('real stdio Hub can serve agents to handler with no model calls', {skip: !p
   assert.equal(out.lines.length, 4);
   assert.match(out.lines.join(''), /codex/);
 });
+
+
+test('accept requires human modal confirmation before applying files', async () => {
+  for (const decision of [undefined, 'Accept']) {
+    const ui = api();
+    ui.window.showWarningMessage = async () => decision;
+    const client = fake({projects_list: [project], recover_context: {workflows: [state]}});
+    const applied = [];
+    await createHandler(ui, async () => client, undefined, async (...args) => {
+      applied.push(args); return 'accepted';
+    })(request('accept'), {}, stream(), {});
+    assert.equal(applied.length, decision === 'Accept' ? 1 : 0);
+    if (applied.length) assert.deepEqual(applied[0], [['accept', 'f1', '--json'], project.path]);
+  }
+});
+
+test('auto accept enable requires confirmation and only targets current project', async () => {
+  for (const decision of [undefined, 'Bật Auto accept']) {
+    const ui = api();
+    ui.window.showWarningMessage = async () => decision;
+    const client = fake({projects_list: [project]});
+    const applied = [];
+    await createHandler(ui, async () => client, undefined, async (...args) => {
+      applied.push(args); return 'enabled';
+    })(request('autoaccept', 'on'), {}, stream(), {});
+    assert.equal(applied.length, decision ? 1 : 0);
+    if (applied.length) assert.deepEqual(applied[0], [['auto-accept', 'on', '--json'], project.path]);
+  }
+});

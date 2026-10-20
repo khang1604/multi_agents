@@ -66,13 +66,15 @@ class Hub:
         flow['events'] = self.store.all('SELECT kind,data,created FROM events WHERE workflow_id=? ORDER BY id DESC LIMIT 20', (workflow_id,))
         for event in flow['events']:
             event['data'] = json.loads(event['data'])
+        from .acceptance import state
+        flow['acceptance'] = state(self.store, workflow_id)
         flow['daemon'] = daemon_status(self.store.home)
         flow['workspace_retired'] = bool(flow.get('delivery') and not Path(flow.get('workspace') or '').exists())
         return flow
 
     def brief(self, workflow_id):
         state = self.status(workflow_id)
-        result = {key:state[key] for key in ['id','status','phase','leader','complexity','calls','max_calls','next_run','workspace','delivery','workspace_retired','daemon']}
+        result = {key:state[key] for key in ['id','status','phase','leader','complexity','calls','max_calls','next_run','workspace','delivery','workspace_retired','daemon','acceptance']}
         result['summary'] = state['summary'][:1500]
         result['error'] = state['error'][-1500:]
         result['checks'] = [{'command':check['command'],'exit_code':check['exit_code']} for check in state['verification'].get('checks',[])]
@@ -154,4 +156,4 @@ class Hub:
         return {'project': row, 'memories': memories,
                 'workflows': flows,
                 'provider_health': self.store.all('SELECT * FROM health'), 'daemon': daemon_status(self.store.home),
-                'instruction': 'Do not duplicate active workflows. Completed work is in its delivery ZIP or isolated worktree, not merged into the source. Read review and verification evidence. If all leaders have quota errors, the daemon waits without AI calls.'}
+                'instruction': 'Do not duplicate active workflows. Completed changes require operator Accept, unless the operator enabled project Auto accept. Check acceptance status; never accept or enable auto accept on behalf of the operator. Read review and verification evidence. If all leaders have quota errors, the daemon waits without AI calls.'}

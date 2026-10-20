@@ -13,7 +13,7 @@ function summary(state) {
   let line = `${state.id}: ${state.status}/${state.phase} · leader ${state.leader || '?'} · ${state.calls}/${state.max_calls} calls`;
   if (state.next_run && state.status === 'waiting') line += ` · thử lại ${new Date(state.next_run * 1000).toLocaleString()}`;
   if (state.error) line += ` · ${clean(state.error)}`;
-  if (state.delivery) line += ` · ZIP: ${clean(state.delivery)}`;
+  if (state.status === 'completed') line += state.acceptance?.status === 'accepted' ? ' · Đã áp dụng vào file' : ' · Chờ Accept: /accept';
   return line;
 }
 function outcome(stream, state) {
@@ -55,7 +55,7 @@ async function selectProject(api, client) {
     {placeHolder: 'Chọn project cho prompt này'});
   return selected && selected.project;
 }
-function createHandler(api, connect, wait = ms => new Promise(resolve => setTimeout(resolve, ms))) {
+function createHandler(api, connect, wait = ms => new Promise(resolve => setTimeout(resolve, ms)), applyChanges) {
   // No workspace source reads, chat history forwarding, model API or recursive dispatch.
   return async (request, context, stream, token) => {
     let client;
@@ -71,6 +71,16 @@ function createHandler(api, connect, wait = ms => new Promise(resolve => setTime
       }
       const project = await selectProject(api, client);
       if (!project || token.isCancellationRequested) return {};
+      if (request.command === 'autoaccept') {
+        const choice = request.prompt.trim() || 'status';
+        if (!['on', 'off', 'status'].includes(choice)) throw new Error('Dùng /autoaccept on, off hoặc status.');
+        if (!applyChanges) throw new Error('Cần cập nhật extension để dùng Accept.');
+        if (choice === 'on' && await api.window.showWarningMessage(
+          'Tự áp dụng code đã kiểm tra vào file của dự án này? Hub vẫn dừng nếu có thay đổi xung đột.',
+          {modal: true}, 'Bật Auto accept') !== 'Bật Auto accept') return {};
+        plain(stream, await applyChanges(['auto-accept', choice, '--json'], project.path));
+        return {};
+      }
       const recovered = await client.call('recover_context', {project: project.id});
       const flows = recovered.workflows || [];
       if (request.command) {
@@ -84,6 +94,13 @@ function createHandler(api, connect, wait = ms => new Promise(resolve => setTime
         }
         if (!workflow) { plain(stream, 'Project chưa có workflow. Nhập @hub và công việc bạn muốn làm.'); return {}; }
         if (token.isCancellationRequested) return {};
+        if (request.command === 'accept') {
+          if (!applyChanges) throw new Error('Cần cập nhật extension để dùng Accept.');
+          if (await api.window.showWarningMessage('Áp dụng thay đổi của ' + workflow.id + ' vào file dự án?',
+            {modal: true}, 'Accept') !== 'Accept') return {};
+          plain(stream, await applyChanges(['accept', workflow.id, '--json'], project.path));
+          return {metadata: {workflowId: workflow.id}};
+        }
         if (request.command === 'cancel') {
           await client.call('cancel_workflow', {workflow_id: workflow.id});
           plain(stream, `Đã yêu cầu dừng ${workflow.id}; giữ code/checkpoint.`);

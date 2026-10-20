@@ -108,6 +108,10 @@ def parser():
     run = sub.add_parser('run'); run.add_argument('request', nargs='+', help='Objective, or PROJECT OBJECTIVE with --project omitted')
     run.add_argument('--project'); run.add_argument('--mode', choices=['auto', 'small', 'standard', 'complex'], default='auto')
     run.add_argument('--max-calls', type=int); run.add_argument('--request-key'); run.add_argument('--no-start', action='store_true')
+    accept = sub.add_parser('accept', help='Apply completed changes to project files; no commit')
+    accept.add_argument('workflow_id', nargs='?')
+    auto = sub.add_parser('auto-accept', help='Choose whether completed changes are applied automatically')
+    auto.add_argument('value', choices=['on', 'off', 'status'])
     status = sub.add_parser('status'); status.add_argument('workflow_id', nargs='?'); status.add_argument('--watch', action='store_true'); status.add_argument('--json', action='store_true')
     for name in ('logs', 'diff', 'cancel', 'retry'):
         ap = sub.add_parser(name); ap.add_argument('workflow_id', nargs='?')
@@ -294,6 +298,17 @@ def main(argv=None):
                 time.sleep(2)
         except KeyboardInterrupt:
             print('Monitor closed; workflow continues independently.')
+    elif command == 'accept':
+        from .acceptance import accept
+        workflow_id = latest(hub, args.workflow_id)
+        flow = hub.store.workflow(workflow_id)
+        if flow['status'] == 'completed' and not flow.get('delivery'):
+            from .retention import archive_completed
+            archive_completed(hub.store, flow, hub.config['retention'])
+        show(accept(hub.store, workflow_id))
+    elif command == 'auto-accept':
+        from .acceptance import mode
+        show(mode(hub.store, current_project(hub), None if args.value == 'status' else args.value == 'on'))
     elif command == 'logs':
         show(hub.store.all('SELECT provider,phase,status,artifact,error,usage FROM attempts WHERE workflow_id=? ORDER BY created',
                            (latest(hub, args.workflow_id),)))

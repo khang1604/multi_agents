@@ -87,6 +87,20 @@ class PosixLauncherTests(unittest.TestCase):
             self.install()
         self.assertEqual(list(outside.iterdir()), [])
 
+    def test_multicall_cli_preserves_symlink_name(self):
+        from agenthub.chat_bridge import code_command
+        dispatcher = self.base / 'dispatcher'
+        dispatcher.write_text('#!/bin/sh\ncase "$0" in */code) printf "synthetic.extension@1.0\\n";; *) exit 7;; esac\n')
+        dispatcher.chmod(0o700)
+        alias = self.base / 'code'
+        alias.symlink_to(dispatcher)
+        command, environment = code_command(alias)
+        result = subprocess.run(command + ['--list-extensions'], env=environment,
+                                capture_output=True, text=True, timeout=5)
+        self.assertEqual(command[0], str(alias))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), 'synthetic.extension@1.0')
+
     def test_linux_vscode_uses_xdg_config_not_windows_appdata(self):
         from agenthub.integrations import client_target
         with patch('agenthub.integrations.sys.platform', 'linux'), \

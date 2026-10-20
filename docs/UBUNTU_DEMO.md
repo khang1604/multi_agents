@@ -94,7 +94,8 @@ request trước handler; phải kiểm trên IDE thật, không suy ra từ uni
 - Quay setup ở root Hub; chọn provider/client và việc apply theo lựa chọn người dùng.
 - Mở repo demo synthetic mới, quay ma init và baseline/MCP result.
 - Gửi prompt trong client đã kết nối. Chỉ quay cảnh này khi đã xác minh UI dispatch.
-- Hiện provider thật đã chạy, verifier output, review và ZIP/patch đúng workflow.
+- Hiện provider thật đã chạy, verifier output, review và phần code thay đổi đúng workflow. Dùng `ma diff`, rồi `ma accept ID`
+  hoặc `@hub /accept ID` để áp dụng vào file dự án. Auto accept mặc định tắt.
 - Không quay OAuth/device code, token, file config tài khoản hoặc dữ liệu người dùng.
 - Chỉ demo nhiều-provider/quota-failover thật nếu đã quan sát; mô phỏng phải ghi rõ.
 - Không tự cấp thêm model calls để quay lại. Rehearsal và lần quay mới cần budget rõ ràng.

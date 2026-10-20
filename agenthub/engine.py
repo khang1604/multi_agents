@@ -44,7 +44,18 @@ class Engine:
             # Retain the phase/artifacts for explicit retry, never silently discard the task.
             self.store.update(flow['id'], status='blocked', error=str(error))
             self.store.event(flow['id'], 'blocked', {'reason': str(error)})
-        self.maybe_cleanup(force=self.store.workflow(flow['id'])['status'] == 'completed')
+        current = self.store.workflow(flow['id'])
+        if current['status'] == 'completed':
+            from .acceptance import mode, accept
+            if mode(self.store, current['project_id'])['auto_accept']:
+                try:
+                    from .retention import archive_completed
+                    if not current.get('delivery'):
+                        archive_completed(self.store, current, self.config['retention'])
+                    accept(self.store, current['id'], automatic=True)
+                except Exception as error:
+                    self.store.event(current['id'], 'auto_accept_blocked', {'reason': str(error)})
+        self.maybe_cleanup(force=current['status'] == 'completed')
         return True
 
     def maybe_cleanup(self, force=False):

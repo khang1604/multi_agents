@@ -190,3 +190,17 @@ Môi trường phát triển: Linux, Python 3.12, Git, Codex CLI 0.163.0-alpha.1
 Chạy lại: `python -m unittest discover -s tests -v` và `python hub.py demo --simulate`.
 
 CI mẫu ở `docs/github-actions-test.yml.example`. Chưa bật GitHub Actions vì token push thiếu scope workflow. Muốn bật, chép mẫu vào `.github/workflows/test.yml` và push bằng tài khoản/token có quyền workflow.
+
+
+## Accept và Auto accept
+
+- Mặc định kết quả chờ người dùng chấp nhận. `ma accept ID` ghi thay đổi vào file
+  dự án, không commit hoặc push; `ma auto-accept on/off/status` áp dụng riêng dự án.
+- Chat extension 0.1.2 có `/accept` và `/autoaccept`; thao tác Accept và bật Auto accept
+  có hộp xác nhận của VS Code. Không đưa quyền duyệt này thành tool MCP cho model.
+- Đã thử ghi file thực tế trên repo synthetic, kiểm tra không đổi HEAD, từ chối
+  source đã thay đổi và không áp dụng lặp. Provider dùng mô phỏng, không gọi model.
+- Kiểm tra handler chat dùng UI mô phỏng; chưa xác nhận hộp thoại bằng UI VS Code thật.
+- Gói phục hồi nội bộ vẫn được kiểm tra hash trước khi dọn worktree. Người dùng không
+  cần giải nén ZIP để áp dụng code. Nếu bị ngắt giữa lúc áp dụng, checkpoint chặn
+  tự thử lại; cần kiểm tra file trước khi tiếp tục.

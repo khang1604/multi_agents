@@ -56,7 +56,8 @@ def resolve_command(prefix):
     found = shutil.which(prefix[0]) or (prefix[0] if Path(prefix[0]).is_file() else None)
     if not found:
         raise FileNotFoundError(prefix[0] + ' is not installed/on PATH')
-    path = Path(found).resolve()
+    # POSIX multicall launchers (including Snap) depend on the invoked alias.
+    path = Path(found).resolve() if os.name == "nt" else Path(os.path.abspath(found))
     if os.name == 'nt' and path.suffix.lower() in {'.cmd', '.bat', '.ps1'}:
         # npm optional native packages may be hoisted or nested. Prefer their native .exe.
         name = path.stem.lower()

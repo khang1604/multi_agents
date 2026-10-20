@@ -71,7 +71,8 @@ def archive_completed(store, flow, policy):
         with zipfile.ZipFile(temp,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as archive:
             for name,candidate in entries:
                 archive.write(candidate,'files/'+name)
-                manifest['changed_files'].append({'path':name,'sha256':hashlib.sha256(candidate.read_bytes()).hexdigest()})
+                manifest['changed_files'].append({'path':name,'sha256':hashlib.sha256(candidate.read_bytes()).hexdigest(),
+                                                  'mode':candidate.stat().st_mode & 0o777})
             archive.writestr('changes.patch',git_bytes(path,'diff','--binary','--no-ext-diff','HEAD'))
             archive.writestr('workflow.json',json.dumps(flow,ensure_ascii=False,indent=2))
             archive.writestr('manifest.json',json.dumps(manifest,ensure_ascii=False,indent=2))

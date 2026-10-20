@@ -345,6 +345,9 @@ class HubTests(unittest.TestCase):
         flow=self.create(); self.drive()
         state=self.hub.store.workflow(flow['id']); worktree=Path(state['workspace'])
         self.assertTrue(worktree.exists())
+        code_path = worktree / 'app/tasks.py'
+        self.assertEqual(code_path.read_text(encoding='utf-8'), DEMO_CODE)
+        expected_code = code_path.read_bytes()
         self.hub.config['retention']['archive_completed_worktrees']=True
         result=sweep(self.hub.store,self.hub.config)
         after=self.hub.status(flow['id'])
@@ -353,7 +356,7 @@ class HubTests(unittest.TestCase):
         self.assertTrue(Path(after['delivery']).is_file())
         with zipfile.ZipFile(after['delivery']) as archive:
             self.assertIsNone(archive.testzip())
-            self.assertEqual(archive.read('files/app/tasks.py').decode(),DEMO_CODE)
+            self.assertEqual(archive.read('files/app/tasks.py'), expected_code)
             self.assertIn('files/tests/test_filter.py',archive.namelist())
             self.assertIn('manifest.json',archive.namelist())
         self.assertNotEqual((self.source/'app/tasks.py').read_text(),DEMO_CODE)

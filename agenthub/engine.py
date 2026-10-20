@@ -106,10 +106,30 @@ class Engine:
         self.store.event(flow['id'], 'routing_unavailable', {'role': role, 'installed': installed})
 
     def step(self, flow):
+        from .settings import effective_config
+        original = self.config
+        self.config = effective_config(original, self.store.home, flow['project_id'])
+        for event in self.store.all("SELECT data FROM events WHERE workflow_id=? AND kind='model_fallback_selected'", (flow['id'],)):
+            name = json.loads(event['data'])['provider']
+            entry = self.config['providers'].get(name, {})
+            if entry.get('model_fallback') == 'INHERIT':
+                entry['model_policy'] = 'INHERIT'
+        if isinstance(self.invoker, Invoker):
+            self.invoker.config = self.config
+        try:
+            self._step(flow)
+        finally:
+            self.config = original
+            if isinstance(self.invoker, Invoker):
+                self.invoker.config = original
+
+    def _step(self, flow):
         if time.time() - flow['created'] > self.config['max_workflow_age_hours'] * 3600:
             self.store.update(flow['id'], status='blocked', error='Workflow time budget exhausted; progress retained')
             return
         project = self.store.project(flow['project_id'])
+        if not any(e.get('enabled') and 'implement' in e.get('roles', []) for e in self.config['providers'].values()):
+            raise ValueError('No coding agent enabled; enable Codex or Claude for implementation')
         if isinstance(self.invoker, Invoker):
             from .security import preflight
             preflight(self.config, bool(project.get('network', False)))
@@ -159,6 +179,8 @@ class Engine:
         if role in {'plan', 'review'} and old_leader and old_leader != provider:
             self.store.event(flow['id'], 'leader_changed', {'from': old_leader, 'to': provider, 'generation': generation})
         self.store.event(flow['id'], 'agent_started', {'provider': provider, 'role': role, 'call': flow['calls']})
+        if role == 'review' and worker and worker['provider'] == provider:
+            self.store.event(flow['id'], 'self_review', {'provider': provider, 'independent': False})
         folder = self.store.home / 'runs' / flow['id'] / f"{flow['calls']:02d}-{role}-{provider}"
         attempt_id = self._attempt(flow, provider, role, folder)
         context_limit = min(self.config['max_context_chars'], 14000) if provider in {'antigravity','copilot'} else self.config['max_context_chars']
@@ -188,6 +210,11 @@ class Engine:
             return
         if not result.report:
             category = failure(result.error)
+            entry = self.config['providers'][provider]
+            if category == 'model' and entry.get('model_fallback') == 'INHERIT' and entry.get('model_policy', 'MANUAL' if entry.get('model') else 'INHERIT') != 'INHERIT':
+                self.store.event(flow['id'], 'model_fallback_selected', {'provider': provider, 'policy': 'INHERIT', 'operator_authorized': True})
+                self.store.update(flow['id'], generation, status='queued', error='Configured model unavailable; retry with operator-authorized Provider Default inside existing call budget')
+                return
             until = reset_time(result.error) or time.time() + (
                 self.config['quota_cooldown_seconds'] if category == 'quota' else
                 self.config['temporary_cooldown_seconds'] if category == 'temporary' else 86400)
@@ -198,6 +225,10 @@ class Engine:
             return
         self.store.health(provider, 0, '')
         report = result.report
+        if role == 'implement':
+            changed = ws.git(path, 'diff', '--name-only', 'HEAD').splitlines()
+            changed += ws.git(path, 'ls-files', '--others', '--exclude-standard').splitlines()
+            self.store.event(flow['id'], 'files_changed', {'files': sorted(set(changed))[:100]})
         self.store.remember(project['id'], 'checkpoint', role + ': ' + report['summary'][:3500])
         if role == 'plan':
             complexity = 'complex' if report['complexity'] == 'complex' else flow['complexity']
@@ -211,7 +242,8 @@ class Engine:
                 self.store.update(flow['id'], generation, status='blocked', error='Reviewer returned no usable verdict')
                 return
             reviews = json.loads(flow['review']).get('reviews', [])
-            reviews.append({'provider': provider, 'fingerprint': before, 'report': report})
+            reviews.append({'provider': provider, 'fingerprint': before, 'report': report,
+                            'independent_provider': bool(worker and worker['provider'] != provider)})
             review = {'reviews': reviews, 'findings': report['findings']}
             if report['verdict'] == 'changes_requested' or report['findings']:
                 self.repair(flow, 'Reviewer requested changes', review)
@@ -236,6 +268,7 @@ class Engine:
         if not self.store.update(flow['id'], flow['generation'], status='running', generation=generation):
             return
         flow['generation'] = generation
+        self.store.event(flow['id'], 'verification_started', {'commands': json.loads(project['verify'])})
         before = ws.fingerprint(flow['workspace'], self.store)
         folder = self.store.home / 'runs' / flow['id'] / f"verify-{generation}"
         folder.mkdir(parents=True, exist_ok=True)
@@ -291,6 +324,11 @@ class Engine:
             self.recover()
             (self.store.home / 'stop').unlink(missing_ok=True)
             while not (self.store.home / 'stop').exists():
+                # Reload between steps, never interrupt a writer to change settings.
+                from .config import load
+                self.config = load(self.store.home)
+                if isinstance(self.invoker, Invoker):
+                    self.invoker.config = self.config
                 (self.store.home / 'heartbeat').write_text(str(time.time()), encoding='utf-8')
                 if not self.tick():
                     self.maybe_cleanup()

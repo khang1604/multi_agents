@@ -1,4 +1,71 @@
-# Agent Hub Private
+# Multi Agents V2 — terminal-first
+
+```powershell
+git clone https://github.com/khang1604/multi_agents.git
+cd multi_agents
+.\setup.ps1
+
+cd C:\Projects\MyApp
+ma init
+ma
+```
+
+V2 mở rộng engine hiện có, không có GUI/web server. `ma` dùng dữ liệu local ngoài
+repository, mặc định `%LOCALAPPDATA%\MultiAgents` trên Windows. `ma init` đăng ký source
+được phép và tạo context có hash/version; không tạo AGENTS.md, .gitignore, MCP config
+hoặc metadata trong repo. `ma` không có tham số mở menu; `ma --help` xem toàn bộ lệnh.
+
+Setup kiểm tra Python >=3.11/Git, phát hiện executable, cho chọn agent bằng Space/Enter
+trong Windows Terminal (terminal đơn giản có nhập tên thay thế), model policy và vai trò.
+Cài PATH và cấu hình client chỉ thực hiện sau lựa chọn rõ ràng, có backup/ownership và
+rollback. Không tự cài/login provider, đổi security flags hay bật chạy cùng Windows.
+
+`ma agents list` chỉ phát hiện executable. `ma agents list --check` dùng lệnh version,
+help và auth-status chính thức khi có; không gọi model. `READY` nghĩa là probe auth và
+giao thức adapter đạt, **không** chứng minh quota hay live execution. Copilot/Antigravity
+auth chưa có probe noninteractive được triển khai thì báo `UNKNOWN`. IDE đã cài không
+đồng nghĩa CLI đã cài/đăng nhập. Mỗi provider giữ đăng nhập của chính nó.
+
+```powershell
+ma agents configure
+ma agents models
+ma agents disable copilot
+ma agents model codex INHERIT
+ma doctor
+ma run "Thêm tính năng lọc với kiểm thử" --max-calls 6
+ma status --watch
+ma logs
+ma diff
+```
+
+`INHERIT` không truyền model; model IDE có thể khác CLI. `AUTO` chỉ dùng khi adapter có
+hỗ trợ đã khai báo; hiện Copilot hỗ trợ `auto`, provider khác cần cho phép fallback
+INHERIT. `MANUAL` chỉ nhận model từ catalog provider được probe trả về, không hardcode
+danh sách model; catalog chưa xác định thì dùng INHERIT hoặc fallback được chọn rõ.
+Model thực dùng chỉ ghi khi CLI trả metadata. [Hướng dẫn V2](docs/V2_GUIDE.md) giải thích
+setup, scope project, MCP, migration, monitoring và các giới hạn chưa live-verify.
+
+MCP dùng cùng một Hub/SQLite cho Antigravity, VS Code Copilot, Codex, Claude hoặc CLI
+Copilot khi client thực tế hỗ trợ. `ma integrations install CLIENT` preview;
+thêm `--apply` để cập nhật cấu hình user ngoài repo có backup. Refresh client, gọi
+`projects_list` rồi `recover_context`; client hỗ trợ MCP không đồng nghĩa provider
+có thể chạy coding. [Bảo mật](docs/SECURITY.md) và xác nhận dữ liệu vẫn bắt buộc;
+cách ly OS theo lựa chọn của người dùng, không tự khai báo đã cách ly.
+
+Chưa chạy provider live hoặc test tương tác IDE cho V2. Không tuyên bố kết nối client
+hoạt động chỉ vì đã sinh cấu hình. [Audit/kế hoạch](docs/V2_IMPLEMENTATION_PLAN.md),
+[kiến trúc](docs/ARCHITECTURE.md) và [kiểm chứng](VERIFICATION.md).
+
+## Tương thích V1: `hub` và dữ liệu cũ
+
+`hub.py`, `hub.cmd`, `Start-Hub.cmd` và menu cũ được giữ. `hub.py init` vẫn khởi tạo
+home cũ; **khác với `ma init`** đăng ký project hiện tại. Không tự chuyển `data/` cũ.
+Muốn dùng V2 với state cũ, đặt `--home` tới home bên ngoài source repo hoặc dùng
+`ma --home EXTERNAL_PATH migrate --from OLD_HOME` vào thư mục trống, sau khi dừng daemon
+và xử lý worktree còn tồn tại. Migration sao chép, giữ nguyên dữ liệu cũ làm backup.
+Phần dưới mô tả các lệnh và đường dẫn của giao diện V1.
+
+# Agent Hub Private (V1 interface)
 
 Bộ điều phối agent cá nhân, chạy cục bộ trên máy bạn. Dành cho quy trình:
 **Antigravity suy nghĩ/lập kế hoạch → Codex triển khai → test bằng chương trình → Claude/Copilot review**.

@@ -94,6 +94,8 @@ def extract_report(stdout, result_file=None):
             usage.update(item['usage'])
         if 'total_cost_usd' in item:
             usage['provider_reported_total_cost_usd'] = item['total_cost_usd']
+        if isinstance(item.get('model'), str):
+            usage['actual_model'] = item['model'][:160]
     if not candidates:
         raise ValueError('No structured final report returned; last output: ' + stdout[-1500:])
     return validate_report(candidates[-1]), usage
@@ -101,13 +103,17 @@ def extract_report(stdout, result_file=None):
 
 def build_command(provider, entry, role, prompt, folder, network):
     prefix = resolve_command(entry['command'])
-    if entry.get('model'):
-        model = ['--model', entry['model']]
-    else:
-        model = []
+    from .registry import model_arguments
+    model = model_arguments(provider, entry)
     extras = entry.get('extra_args', [])
     if not isinstance(extras, list) or not all(isinstance(x, str) for x in extras):
         raise ValueError('extra_args must be an argument array')
+    forbidden = {'--dangerously-skip-permissions', '--dangerously-bypass-approvals-and-sandbox',
+                 '--yolo', '--allow-all-tools', '--allow-all', '--disable-sandbox'}
+    if any(arg.split('=', 1)[0] in forbidden or arg.split('=', 1)[0] in {'--sandbox', '--permission-mode'}
+           or any(value in arg.lower() for value in ('danger-full-access', 'bypasspermissions', 'network_access=true', 'sandbox_mode='))
+           for arg in extras):
+        raise ValueError('Provider sandbox/permission bypass flags are forbidden')
     schema = folder / 'schema.json'
     schema.write_text(json.dumps(REPORT_SCHEMA), encoding='utf-8')
     result_file = folder / 'result.json'
@@ -184,7 +190,8 @@ class Invoker:
             with (folder / 'stdout.log').open('wb') as out, (folder / 'stderr.log').open('wb') as err, \
                     (folder / 'prompt.txt').open('rb') as prompt_input:
                 process = spawn(command, cwd=workspace, stdin=prompt_input if stdin is not None else subprocess.DEVNULL,
-                                stdout=out, stderr=err)
+                                stdout=out, stderr=err,
+                                env={**os.environ, 'MULTI_AGENTS_WORKER': folder.parent.name})
             on_pid(process.pid)
             deadline = time.monotonic() + self.config['agent_timeout_seconds']
             while process.poll() is None:

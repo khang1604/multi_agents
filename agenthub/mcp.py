@@ -1,5 +1,6 @@
 """MCP stdio transport. stdout is reserved for JSON-RPC replies."""
 import json
+import os
 import sys
 from .api import Hub
 
@@ -26,8 +27,27 @@ TOOLS = [
          {'project': STR, 'name': STR, 'content': STR}, ['project', 'name', 'content']),
 ]
 
+TOOLS += [
+    tool('list_agents', 'List installed/configured agents without model calls.', {}, []),
+    tool('get_agent_status', 'Read one agent status; does not probe authentication or call a model.', {'agent': STR}, ['agent']),
+    tool('get_agent_models', 'Read model policy and provider-reported model catalog; unknown remains unknown.', {'agent': STR}, ['agent']),
+    tool('set_agent_enabled', 'Change enabled state only with operator-granted MCP configuration permission and no active workflow.',
+         {'agent': STR, 'enabled': {'type': 'boolean'}, 'project': STR}, ['agent', 'enabled']),
+    tool('set_agent_model', 'Change model policy only with operator-granted MCP configuration permission.',
+         {'agent': STR, 'policy': {'type': 'string', 'enum': ['INHERIT', 'AUTO', 'MANUAL']},
+          'model': STR, 'fallback': {'type': 'string', 'enum': ['INHERIT']}, 'project': STR}, ['agent', 'policy']),
+    tool('initialize_project', 'Refresh context for an already registered approved project; cannot select arbitrary file paths.', {'project': STR}, ['project']),
+    tool('get_project_context', 'Read versioned context and stale status for a registered project.', {'project': STR}, ['project']),
+    tool('dispatch_task', 'Dispatch using the same durable workflow engine, enabled agents and request-key deduplication.',
+         {'project': STR, 'objective': STR, 'request_key': STR,
+          'max_calls': {'type': 'integer', 'minimum': 1, 'maximum': 50}}, ['project', 'objective', 'request_key']),
+    tool('get_workflow_status', 'Read actual persisted workflow status.', {'workflow_id': STR}, ['workflow_id']),
+    tool('get_workflow_events', 'Read actual persisted events without LLM polling.', {'workflow_id': STR}, ['workflow_id']),
+    tool('cancel_workflow', 'Cancel via generation fencing; preserve code and checkpoints.', {'workflow_id': STR}, ['workflow_id']),
+]
 
-def serve(home):
+
+def serve(home, client='unknown'):
     hub = Hub(home)
     for line in sys.stdin:
         request = None
@@ -37,8 +57,10 @@ def serve(home):
                 continue
             method = request.get('method')
             if method == 'initialize':
-                result = {'protocolVersion': '2024-11-05', 'capabilities': {'tools': {}},
-                          'serverInfo': {'name': 'agent-hub-private', 'version': '0.1.0'},
+                requested = request.get('params', {}).get('protocolVersion', '2024-11-05')
+                version = requested if requested in {'2024-11-05', '2025-03-26', '2025-06-18'} else '2024-11-05'
+                result = {'protocolVersion': version, 'capabilities': {'tools': {}},
+                          'serverInfo': {'name': 'agent-hub-private', 'version': '0.2.0'},
                           'instructions': 'Call projects_list then recover_context before creating work. Use stable request_key. '
                                           'The daemon handles retries and leader failover without model supervision. Do not repeatedly poll with AI; check status only when useful.'}
             elif method == 'ping':
@@ -46,14 +68,21 @@ def serve(home):
             elif method == 'tools/list':
                 result = {'tools': TOOLS}
             elif method == 'tools/call':
+                from .config import load
+                hub.config = load(hub.store.home)
                 params = request.get('params', {})
                 args = params.get('arguments', {})
                 name = params.get('name')
                 try:
+                    aliases = {'dispatch_task': 'workflow_start', 'get_workflow_status': 'workflow_status',
+                               'cancel_workflow': 'workflow_cancel'}
+                    name = aliases.get(name, name)
                     if name == 'projects_list':
-                        value = hub.store.all('SELECT id,name,path FROM projects')
+                        from .project_context import is_removed
+                        value = [p for p in hub.store.all('SELECT id,name,path FROM projects') if not is_removed(hub.store.home, p['id'])]
                     elif name == 'workflow_start':
                         created = hub.start(**args)
+                        hub.store.event(created['id'], 'client_dispatch', {'client': str(client)[:80]})
                         value = hub.brief(created['id'])
                     elif name == 'workflow_status':
                         details=args.pop('include_details',False)
@@ -68,6 +97,37 @@ def serve(home):
                         project = hub.store.project(args['project'])
                         hub.store.remember(project['id'], args['name'], args['content'])
                         value = {'saved': True}
+                    elif name in {'list_agents', 'get_agent_status', 'get_agent_models'}:
+                        from .registry import discover
+                        rows = discover(hub.config)
+                        if name == 'list_agents':
+                            value = rows
+                        elif name == 'get_agent_models':
+                            from .registry import model_info
+                            value = model_info(hub.config, args['agent'], hub.store.home)
+                        else:
+                            value = next((r for r in rows if r['agent'] == args['agent']), None)
+                            if value is None: raise ValueError('Unknown agent')
+                    elif name in {'set_agent_enabled', 'set_agent_model'}:
+                        if not hub.config.get('permissions', {}).get('mcp_config_write'):
+                            raise ValueError('Operator must grant permission with ma config --allow-mcp-config true')
+                        from .settings import update_provider
+                        if name == 'set_agent_enabled':
+                            changes = {'enabled': args['enabled']}
+                        else:
+                            changes = {'model_policy': args['policy'], 'model': args.get('model'), 'model_fallback': args.get('fallback')}
+                            from .registry import model_info
+                            changes['model_catalog'] = model_info(hub.config, args['agent'], hub.store.home)['catalog']
+                        value = update_provider(hub, args['agent'], changes, args.get('project'))
+                    elif name == 'initialize_project':
+                        from .project_context import refresh
+                        value = refresh(hub, hub.store.project(args['project']))
+                    elif name == 'get_project_context':
+                        from .project_context import get_context
+                        value = get_context(hub, args['project'])
+                    elif name == 'get_workflow_events':
+                        hub.store.workflow(args['workflow_id'])
+                        value = hub.store.all('SELECT kind,data,created FROM events WHERE workflow_id=? ORDER BY id DESC LIMIT 100', (args['workflow_id'],))
                     else:
                         raise ValueError('Unknown tool')
                     result = {'content': [{'type': 'text', 'text': json.dumps(value, ensure_ascii=False)}]}

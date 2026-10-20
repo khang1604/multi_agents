@@ -14,6 +14,17 @@ class Hub:
         self.config = load(home)
 
     def start(self, project, objective, request_key, max_calls=None, mode='auto', launch=True, prepared_plan=None, handoff=None):
+        import os
+        from .project_context import is_removed
+        row = self.store.project(project)
+        if os.environ.get('MULTI_AGENTS_WORKER'):
+            raise ValueError('Recursive dispatch from an executing worker is forbidden')
+        if is_removed(self.store.home, row['id']):
+            raise ValueError('Project registration was removed; initialize it explicitly before dispatch')
+        if not json.loads(row['verify']):
+            raise ValueError('No verification commands configured; initialize with explicit --verify first')
+        from .settings import effective_config
+        config = effective_config(self.config, self.store.home, row['id'])
         if handoff is not None:
             from .workspace import validate_handoff
             validate_handoff(handoff)
@@ -31,7 +42,7 @@ class Hub:
                 raise ValueError('Invalid plan size/complexity')
             levels = ['small','standard','complex']
             level = levels[max(levels.index(level), levels.index(prepared_plan['complexity']))]
-        policy = self.config['auto'][level]
+        policy = config['auto'][level]
         cap = policy['max_calls'] if max_calls is None else max_calls
         if not isinstance(cap, int) or not 1 <= cap <= 50:
             raise ValueError('max_calls must be 1–50')

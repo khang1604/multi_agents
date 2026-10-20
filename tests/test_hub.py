@@ -212,7 +212,8 @@ class HubTests(unittest.TestCase):
                                 input=''.join(json.dumps(r)+'\n' for r in requests), capture_output=True, encoding='utf-8', timeout=10)
         replies = [json.loads(line) for line in result.stdout.splitlines()]
         self.assertEqual(len(replies), 3)
-        self.assertEqual(len(replies[1]['result']['tools']), 7)
+        self.assertGreaterEqual(len(replies[1]['result']['tools']), 7)
+        self.assertIn('dispatch_task', {t['name'] for t in replies[1]['result']['tools']})
         self.assertIn('demo', replies[2]['result']['content'][0]['text'])
 
     def test_no_shell_string_commands(self):

@@ -6,7 +6,8 @@ import re
 import time
 import sys
 
-EXCLUDED = {'.git', '.env', 'node_modules', '.venv', 'venv', '__pycache__', 'data', 'dist', 'build'}
+EXCLUDED = {'.git', '.env', 'node_modules', '.venv', 'venv', '__pycache__', 'data', 'dist', 'build',
+            'bin', 'obj', '.codex', '.claude', '.copilot', '.gemini', '.ssh', 'secrets', 'credentials'}
 
 
 def git(path, *args, check=True):
@@ -47,7 +48,9 @@ def files(root):
         rel = Path(name)
         if rel.is_absolute() or any(part in EXCLUDED or part.startswith('.env') for part in rel.parts):
             continue
-        if rel.suffix.lower() in {'.pem', '.key', '.p12', '.pfx', '.sqlite', '.db'}:
+        if (rel.suffix.lower() in {'.pem', '.key', '.p12', '.pfx', '.sqlite', '.sqlite3', '.db', '.dump', '.bak'}
+                or rel.name.lower() in {'appsettings.json', 'appsettings.development.json', 'auth.json', 'credentials.json', 'secrets.json'}
+                or rel.stem.lower() in {'secret', 'secrets', 'credentials', 'token', 'tokens'}):
             continue
         path = root / rel
         if path.is_file() and not path.is_symlink() and path.resolve().is_relative_to(root.resolve()):
@@ -156,6 +159,14 @@ def build_pack(store, workflow, project, role, limit):
                 'LATEST REVIEW/FAILURE:\n' + workflow['review'][:6000] + '\n' + workflow['error'][:2000],
                 'VERIFY:\n' + workflow['verification'][:5000]]
     available = dict(files(root))
+    from .settings import project_settings_path
+    shared_path = project_settings_path(store.home, project['id']).parent / 'context/project.json'
+    if shared_path.exists():
+        shared = json.loads(shared_path.read_text(encoding='utf-8'))
+        hashes = {item['path']: item['sha256'] for item in shared.get('files', [])}
+        fresh = all(name in available and cached_file(store, available[name], include_content=False)['sha256'] == hashes.get(name)
+                    for name in shared.get('documents', {}))
+        sections.append('SHARED PROJECT CONTEXT:\n' + encode_shared_context(shared, fresh))
     manifest, cache_hits = [], 0
     if role in {'implement','review'}:
         sections.append('CURRENT DIFF:\n' + diff(root)[:20000])
@@ -206,3 +217,11 @@ def build_pack(store, workflow, project, role, limit):
 
 def context(store, workflow, project, role, limit):
     return build_pack(store, workflow, project, role, limit)['text']
+
+
+def encode_shared_context(shared, fresh):
+    if not fresh:
+        return 'Saved project context is stale; use current selected excerpts, not old analysis.'
+    return json.dumps({'version': shared.get('version'), 'languages': shared.get('languages', []),
+                       'dependencies': shared.get('dependencies', []),
+                       'facts_source': shared.get('facts_source'), 'ai_inferences': shared.get('ai_inferences', [])}, ensure_ascii=False)[:4000]

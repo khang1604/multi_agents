@@ -1,5 +1,30 @@
 # Kiến trúc Agent Hub Private
 
+## V2 extension boundary
+
+`ma.py -> agenthub/cli.py` là entrypoint mới, dùng chung `Hub`, `Store`, `Engine` và
+MCP với `hub.py`. Không có orchestrator thứ hai cho từng IDE/client. `settings.py`
+chọn home ngoài repo; `registry.py` chỉ probe command chính thức, không đọc credential.
+`project_context.py` lưu version/hash và fact/suy luận riêng ở home/projects/<id>.
+`wizard.py`, `integrations.py`, `lifecycle.py`, `monitor.py` lần lượt quản lý setup,
+client stdio, ownership PATH/migration và view từ event thật. Vẫn chỉ standard library.
+
+Một SQLite trung tâm tiếp tục là nguồn workflow/memory/checkpoint, thay vì tạo nhiều
+DB không nhất quán cho từng client. Các project settings/context ở thư mục riêng,
+id được lưu ổn định theo path đăng ký. Worktree và delivery ở home ngoài source.
+Global enabled=false không thể bị project override tự bật lại. Cấu hình provider
+bị khóa khi có workflow active; daemon nạp lại giữa các step, không ngắt writer.
+
+Worker CLI nhận marker môi trường; Hub từ chối dispatch đệ quy từ marker đó. Client
+provenance chỉ là metadata, không cấp quyền. Request key vẫn chống giao task trùng.
+MCP thay đổi enabled/model cần permission riêng, mặc định false. MCP init chỉ refresh
+project đã được đăng ký bằng CLI; không cho client chọn đường dẫn tùy ý.
+
+Default sửa tối đa 3 vòng ở policy standard/complex mới, nhưng CLI call cap vẫn cứng
+và config cũ giữ nguyên giá trị. Self-review được ghi event và independent_provider=false.
+Lỗi model chỉ chuyển Provider Default khi operator đã chọn fallback INHERIT, lưu event
+theo workflow và tính trong call cap; không thay model config hoặc model trong IDE.
+
 ## Mô hình
 
 ```mermaid

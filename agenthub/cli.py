@@ -1,0 +1,232 @@
+"""V2 commands reuse the existing Hub, Store, Engine and stdio server."""
+import argparse
+import json
+from pathlib import Path
+import sys
+import time
+import uuid
+
+from .api import Hub
+from .config import ROOT
+from .settings import application_home, update_provider, effective_config, atomic_json, ensure_idle
+from .registry import SPECS, discover
+from .project_context import initialize, get_context, unregister, is_removed
+from .service import start_daemon, stop_daemon, daemon_status
+
+
+def output(value):
+    print(json.dumps(value, ensure_ascii=False, indent=2))
+
+
+def parser():
+    p = argparse.ArgumentParser(prog='ma', description='Multi Agents — terminal-first local orchestrator')
+    p.add_argument('--home', default=str(application_home()), help='External local data home')
+    sub = p.add_subparsers(dest='command')
+    init = sub.add_parser('init', help='Initialize the current approved Git project; no source writes or AI')
+    init.add_argument('path', nargs='?', default='.')
+    init.add_argument('--name'); init.add_argument('--verify', help='JSON executable argument arrays')
+    init.add_argument('--refresh', action='store_true', help='Refresh changed local context; init is already idempotent')
+    setup = sub.add_parser('setup')
+    setup.add_argument('--check', dest='check', action='store_true', default=True, help='Official version/auth probes (default); no model calls')
+    setup.add_argument('--offline', dest='check', action='store_false', help='Resolve paths only; leave version/auth unknown')
+    doc = sub.add_parser('doctor'); doc.add_argument('--offline', action='store_true')
+    agents = sub.add_parser('agents'); ac = agents.add_subparsers(dest='action', required=True)
+    ls = ac.add_parser('list'); ls.add_argument('--check', action='store_true')
+    for action in ('enable', 'disable'):
+        ap = ac.add_parser(action); ap.add_argument('agent', choices=SPECS); ap.add_argument('--project')
+    models = ac.add_parser('models'); models.add_argument('agent', nargs='?', choices=SPECS)
+    model = ac.add_parser('model'); model.add_argument('agent', choices=SPECS)
+    model.add_argument('policy', choices=['INHERIT', 'AUTO', 'MANUAL']); model.add_argument('--model')
+    model.add_argument('--fallback', choices=['INHERIT']); model.add_argument('--project')
+    ac.add_parser('configure')
+    cfg = sub.add_parser('config'); cfg.add_argument('--allow-mcp-config', choices=['true', 'false'])
+    cfg.add_argument('--default-client', choices=['antigravity', 'vscode', 'codex', 'copilot', 'claude', 'none'])
+    project = sub.add_parser('projects'); pc = project.add_subparsers(dest='action', required=True)
+    pc.add_parser('list')
+    remove = pc.add_parser('remove'); remove.add_argument('project')
+    context = sub.add_parser('context'); context.add_argument('project', nargs='?')
+    run = sub.add_parser('run'); run.add_argument('request', nargs='+', help='Objective, or PROJECT OBJECTIVE with --project omitted')
+    run.add_argument('--project'); run.add_argument('--mode', choices=['auto', 'small', 'standard', 'complex'], default='auto')
+    run.add_argument('--max-calls', type=int); run.add_argument('--request-key'); run.add_argument('--no-start', action='store_true')
+    status = sub.add_parser('status'); status.add_argument('workflow_id', nargs='?'); status.add_argument('--watch', action='store_true'); status.add_argument('--json', action='store_true')
+    for name in ('logs', 'diff', 'cancel', 'retry'):
+        ap = sub.add_parser(name); ap.add_argument('workflow_id', nargs='?')
+        if name == 'retry': ap.add_argument('--extra-calls', type=int, default=0)
+    for name in ('start', 'stop', 'restart'):
+        sub.add_parser(name)
+    mcp = sub.add_parser('mcp'); mcp.add_argument('--client', default='unknown')
+    sub.add_parser('mcp-config')
+    integration = sub.add_parser('integrations'); ic = integration.add_subparsers(dest='action', required=True)
+    for name in ('command', 'install', 'remove'):
+        ap = ic.add_parser(name); ap.add_argument('client', choices=['antigravity', 'vscode', 'codex', 'copilot', 'claude'])
+        if name == 'install': ap.add_argument('--apply', action='store_true')
+    sub.add_parser('install-command')
+    sub.add_parser('uninstall')
+    update = sub.add_parser('update'); update.add_argument('--apply', action='store_true')
+    migrate = sub.add_parser('migrate'); migrate.add_argument('--from', dest='source', required=True)
+    demo = sub.add_parser('demo'); demo.add_argument('--simulate', action='store_true', required=True)
+    return p
+
+
+def current_project(hub):
+    from .discovery import repository_root
+    import os
+    root = repository_root(Path.cwd())
+    for row in hub.store.all('SELECT * FROM projects'):
+        if os.path.normcase(str(Path(row['path']).resolve())) == os.path.normcase(str(root)) and not is_removed(hub.store.home, row['id']):
+            return row['name']
+    raise ValueError('Run ma init in this approved project first')
+
+
+def latest(hub, workflow_id=None):
+    if workflow_id:
+        return workflow_id
+    try:
+        row = hub.store.project(current_project(hub))
+        result = hub.store.one('SELECT id FROM workflows WHERE project_id=? ORDER BY updated DESC LIMIT 1', (row['id'],))
+    except ValueError:
+        result = hub.store.one('SELECT id FROM workflows ORDER BY updated DESC LIMIT 1')
+    if not result:
+        raise ValueError('No workflow recorded yet')
+    return result['id']
+
+
+def menu(hub):
+    while True:
+        print('\nMULTI AGENTS — 1 Agents  2 Initialize here  3 Dispatch  4 Status  5 Configure  6 Setup  0 Exit')
+        choice = input('Choose: ').strip()
+        if choice == '0': return
+        try:
+            if choice == '1': output(discover(hub.config))
+            elif choice == '2': output(initialize(hub, Path.cwd()))
+            elif choice == '3':
+                project = current_project(hub)
+                objective = input('Task: ').strip()
+                output(hub.start(project, objective, uuid.uuid4().hex))
+            elif choice == '4': output(hub.store.all('SELECT id,status,phase,leader,calls,max_calls FROM workflows ORDER BY updated DESC LIMIT 20'))
+            elif choice in {'5', '6'}:
+                from .wizard import run
+                run(hub)
+        except (ValueError, OSError) as error:
+            print('Multi Agents:', error)
+
+
+def main(argv=None):
+    args = parser().parse_args(argv)
+    if args.command == 'migrate':
+        from .lifecycle import migrate_legacy
+        output(migrate_legacy(args.source, args.home)); return
+    if args.command == 'init':
+        from .discovery import repository_root
+        from .project_context import outside_repository
+        outside_repository(args.home, repository_root(args.path))
+    hub = Hub(args.home)
+    command = args.command
+    if command is None:
+        if not sys.stdin.isatty():
+            parser().print_help(); return
+        menu(hub)
+    elif command == 'init': output(initialize(hub, args.path, args.name, json.loads(args.verify) if args.verify else None))
+    elif command == 'setup':
+        from .wizard import run
+        run(hub, args.check)
+    elif command == 'doctor':
+        import shutil
+        output({'python': sys.version.split()[0], 'git': shutil.which('git'), 'home': str(hub.store.home),
+                'daemon': daemon_status(hub.store.home), 'agents': discover(hub.config, not args.offline),
+                'note': 'Auth status is not proof of quota or live execution. No IDE credential scraping.'})
+    elif command == 'agents':
+        if args.action == 'configure':
+            from .wizard import run
+            run(hub)
+        elif args.action == 'list':
+            rows = discover(hub.config, args.check)
+            if args.check: atomic_json(hub.store.home / 'agent-registry.json', rows)
+            output(rows)
+        elif args.action in {'enable', 'disable'}:
+            output(update_provider(hub, args.agent, {'enabled': args.action == 'enable'}, args.project))
+        elif args.action == 'models':
+            from .registry import model_info
+            output({n: model_info(hub.config, n, hub.store.home) for n in hub.config['providers'] if not args.agent or n == args.agent})
+        elif args.action == 'model':
+            changes = {'model_policy': args.policy, 'model': args.model, 'model_fallback': args.fallback}
+            cache = hub.store.home / 'agent-registry.json'
+            if cache.exists():
+                rows = json.loads(cache.read_text(encoding='utf-8'))
+                changes['model_catalog'] = next((r['model_catalog'] for r in rows if r['agent'] == args.agent), [])
+            output(update_provider(hub, args.agent, changes, args.project))
+    elif command == 'config':
+        if args.allow_mcp_config is not None or args.default_client is not None:
+            from .platforms import FileLock
+            with FileLock(hub.store.home / 'settings.lock'):
+                ensure_idle(hub.store)
+                if args.allow_mcp_config is not None:
+                    hub.config.setdefault('permissions', {})['mcp_config_write'] = args.allow_mcp_config == 'true'
+                if args.default_client is not None:
+                    hub.config['default_client'] = None if args.default_client == 'none' else args.default_client
+                atomic_json(hub.store.home / 'config.json', hub.config)
+        output({'home': str(hub.store.home), 'security': hub.config['security'], 'auto': hub.config['auto'],
+                'permissions': hub.config.get('permissions', {}), 'default_client': hub.config.get('default_client'),
+                'note': 'Provider login credentials remain with each official CLI.'})
+    elif command == 'projects':
+        if args.action == 'remove': output(unregister(hub, args.project))
+        else: output([p for p in hub.store.all('SELECT * FROM projects') if not is_removed(hub.store.home, p['id'])])
+    elif command == 'context': output(get_context(hub, args.project or current_project(hub)))
+    elif command == 'run':
+        if args.project:
+            project, objective = args.project, ' '.join(args.request)
+        elif len(args.request) == 2 and hub.store.one('SELECT id FROM projects WHERE name=? OR id=?', (args.request[0], args.request[0])):
+            project, objective = args.request
+        else:
+            project, objective = current_project(hub), ' '.join(args.request)
+        output(hub.start(project, objective, args.request_key or uuid.uuid4().hex, args.max_calls, args.mode, launch=not args.no_start))
+    elif command == 'status':
+        if not args.workflow_id and not hub.store.one('SELECT id FROM workflows LIMIT 1'):
+            output({'daemon': daemon_status(hub.store.home), 'workflows': []}); return
+        from .monitor import render
+        workflow_id = latest(hub, args.workflow_id)
+        try:
+            while True:
+                state = hub.status(workflow_id)
+                if args.json: output(state)
+                else: print(render(state), flush=True)
+                if not args.watch or state['status'] in {'completed', 'blocked', 'cancelled', 'needs_review'}: break
+                time.sleep(2)
+        except KeyboardInterrupt:
+            print('Monitor closed; workflow continues independently.')
+    elif command in {'logs', 'diff'}:
+        import hub as legacy
+        legacy.main(['--home', str(hub.store.home), command, latest(hub, args.workflow_id)])
+    elif command == 'cancel': output(hub.store.cancel(latest(hub, args.workflow_id)))
+    elif command == 'retry': output(hub.retry(latest(hub, args.workflow_id), args.extra_calls))
+    elif command in {'start', 'stop', 'restart'}:
+        if command == 'restart':
+            stop_daemon(hub.store.home)
+            deadline = time.monotonic() + 15
+            while daemon_status(hub.store.home) != 'stopped':
+                if time.monotonic() > deadline: raise ValueError('Daemon still stopping; no duplicate daemon started')
+                time.sleep(.2)
+        output(stop_daemon(hub.store.home) if command == 'stop' else start_daemon(hub.store.home))
+    elif command == 'mcp':
+        from .mcp import serve
+        serve(hub.store.home, client=args.client)
+    elif command == 'mcp-config':
+        from .integrations import server
+        output({'mcpServers': {'multi_agents': server(hub.store.home, 'vscode')}})
+    elif command == 'integrations':
+        from .integrations import install_client, remove_client, integration_plan
+        output(remove_client(hub.store.home, args.client) if args.action == 'remove' else
+               install_client(hub.store.home, args.client, args.apply) if args.action == 'install' else integration_plan(hub.store.home, args.client))
+    elif command == 'install-command':
+        from .lifecycle import install_command
+        output(install_command(hub.store.home))
+    elif command == 'uninstall':
+        from .lifecycle import uninstall
+        ensure_idle(hub.store)
+        output(uninstall(hub.store.home))
+    elif command == 'update':
+        from .lifecycle import update_source
+        output(update_source(ROOT, args.apply))
+    elif command == 'demo':
+        from .simulation import simulate
+        output(simulate())

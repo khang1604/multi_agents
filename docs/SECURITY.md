@@ -1,5 +1,14 @@
 # Test-only security boundary
 
+V2 không thay đổi xác nhận synthetic/cách ly đã chọn. `ma` dùng home ngoài source;
+`ma init` không tạo file metadata trong repo. Không có HTTP listener hoặc port public.
+Setup mặc định không sửa client config/PATH cho tới khi operator lựa chọn; có backup,
+ownership và rollback. `ma config --allow-mcp-config true` là quyền riêng cho MCP sửa
+enabled/model; không cho MCP sửa security, command hoặc tăng ngân sách tùy ý.
+Worker không được dispatch workflow đệ quy. Cờ bypass sandbox trong extra_args bị chặn.
+Context bỏ .env, credential/private-key files, appsettings và các thư mục credential;
+đây không phải DLP hoàn chỉnh hoặc ACL OS. Source vẫn phải được duyệt và synthetic.
+
 Hub mặc định chặn workflow thật trước khi tạo worktree/đọc context. Demo `--simulate`
 vẫn chạy trên fixture tự tạo, không gọi model. Mọi lời gọi CLI thật nhận GLOBAL_RULES.md.
 

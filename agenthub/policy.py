@@ -16,6 +16,8 @@ def classify(objective):
 
 def failure(text):
     text = text.lower()
+    if any(t in text for t in ['model_not_found', 'model not found', 'invalid model', 'unsupported model', 'model unavailable', 'model is not available']):
+        return 'model'
     if any(t in text for t in ['bwrap:', 'permission denied', 'operation not permitted', 'blocked by policy', 'sandbox error']):
         return 'permissions'
     if any(t in text for t in ['not authenticated', 'authentication required', 'invalid api key', 'unauthorized', 'login required', 'expired credentials']):
@@ -51,6 +53,9 @@ def choose(config, store, role, priority, excluded=(), now=None):
     for name in priority:
         entry = config['providers'].get(name)
         if name in excluded or not entry or not entry.get('enabled') or role not in entry['roles']:
+            continue
+        from .registry import SPECS
+        if name not in SPECS or role not in SPECS[name]['roles']:
             continue
         if health.get(name, {}).get('until', 0) > now:
             continue

@@ -1,5 +1,19 @@
 # Windows
 
+## V2: setup và lệnh ma
+
+Chạy `.\setup.ps1` tại source Hub. Script không đổi ExecutionPolicy, không tự nâng
+quyền và không tự cài CLI AI. Nếu policy chặn, gọi `py -3 ma.py setup` trực tiếp.
+Python/Git thiếu thì wizard dừng để bạn cài từ nguồn chính thức.
+
+Installer tạo launcher có ownership tại home/runtime/bin/ma.cmd, chỉ thêm PATH user,
+không ghi đè một lệnh ma khác. Mở terminal mới sau cài. CWD, đường dẫn có khoảng trắng
+và Unicode được giữ. Setup chạy lại giữ cấu hình và security; lỗi rollback các thay đổi
+setup sở hữu, giữ backup. `ma uninstall` chỉ gỡ launcher/PATH đã sở hữu, giữ data/source.
+
+Home mới mặc định `%LOCALAPPDATA%\MultiAgents`; không chép state Linux sang Windows.
+Giao diện `hub` cũ bên dưới vẫn hoạt động và vẫn dùng home cũ. Xem [V2 guide](V2_GUIDE.md).
+
 ## Chuẩn bị
 
 - Windows 10/11, Python 3.11+ và Git trong PATH.
@@ -50,9 +64,9 @@ không admin. Task chỉ chạy khi đăng nhập, không đánh thức máy ng�
 Task giữ nguyên path lúc cài; di chuyển thư mục thì chạy lại installer. remove-autostart.ps1
 chỉ gỡ startup; dùng hub.py stop để dừng daemon đang chạy.
 
-## Coverage
+## Coverage V1 lịch sử
 
-Không có máy Windows trong môi trường phát triển hiện tại. Đã chuẩn bị CI matrix Windows
+Phiên phát triển V1 ban đầu không có máy Windows. Đã chuẩn bị CI matrix Windows
 và Linux nhưng chưa chạy trên GitHub. Khóa msvcrt, Win32 PID handle, taskkill /T, npm shim
 và Task Scheduler cần xác nhận bằng offline demo/tests trên Windows của bạn.
 

@@ -93,11 +93,11 @@ class Store:
             raise ValueError('Unknown project; register it first with project-add')
         return row
 
-    def add_project(self, name, path, verify, context_paths, network=False):
+    def add_project(self, name, path, verify, context_paths, network=False, allow_unverified=False):
         path = Path(path).resolve()
         if not path.is_dir():
             raise ValueError('Project directory does not exist')
-        if not verify or not all(isinstance(command, list) and command and
+        if (not verify and not allow_unverified) or not isinstance(verify, list) or not all(isinstance(command, list) and command and
                                  all(isinstance(x, str) for x in command) for command in verify):
             raise ValueError('verify must contain executable argument arrays, never shell strings')
         for item in context_paths:

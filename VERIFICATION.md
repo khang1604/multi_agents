@@ -1,5 +1,24 @@
 # Kiểm chứng bản demo
 
+## V2 — Windows, 2026-10-20
+
+- Python 3.13.15, Git 2.54.0.windows.1: **98 unittest pass** trong 55.011 giây.
+- Gồm 51 regression test và 47 test V2: discovery/auth probe giả, model policy/fallback,
+  selection/roles, context hash/version, không ghi metadata vào repo, CLI Unicode,
+  MCP aliases/quyền/đệ quy, setup rollback, PATH ownership giả lập, migration SQLite,
+  update fast-forward giả lập, monitoring từ event và giữ sandbox.
+- `ma ... demo --simulate`: completed, leader failover quan sát được, 4 test fixture
+  pass, source gốc không đổi, actual_model_calls=0.
+- `setup.ps1` được parse cú pháp bằng PowerShell; launcher ma.cmd được chạy với repo
+  synthetic có Unicode. Không chạy wizard cài PATH hoặc sửa MCP config thật trong phase này.
+- Client configs/PATH trong test là file tạm hoặc mock. Chưa live-verify Codex/Claude/
+  Copilot/Antigravity adapter, phiên đăng nhập, model catalog thật, hoặc chat/MCP IDE.
+- Không chạy lại trên Linux trong phiên này; không tự bật CI GitHub Actions.
+- Không tự commit, push, merge, migrate state thật, đổi security flags hay autostart.
+- Xem [báo cáo từng phase](docs/V2_PHASE_REPORT.md). Các ghi chú V1 bên dưới là lịch sử.
+
+## V1 history
+
 Kiểm chứng Windows ngày 2026-10-19: Python 3.13.15, Git 2.54.0.windows.1,
 51 unittest pass sau khi sửa test CRLF/LF và thêm policy cách ly theo yêu cầu.
 Coverage mới gồm synthetic không yêu cầu cách ly, yêu cầu cách ly nhưng chưa xác nhận,

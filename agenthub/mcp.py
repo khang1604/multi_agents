@@ -21,7 +21,8 @@ TOOLS = [
     tool('workflow_status', 'Read progress, current leader, model call budget and verification. No AI call.', {'workflow_id': STR, 'include_details':{'type':'boolean'}}, ['workflow_id']),
     tool('workflow_cancel', 'Cancel a workflow. Late old-leader results are ignored.', {'workflow_id': STR}, ['workflow_id']),
     tool('workflow_retry', 'Resume a blocked workflow after fixing the cause. Keeps existing quota cap unless extra_calls is explicitly granted.',
-         {'workflow_id': STR, 'extra_calls': {'type': 'integer', 'minimum': 0, 'maximum': 20}}, ['workflow_id']),
+         {'workflow_id': STR, 'extra_calls': {'type': 'integer', 'minimum': 0, 'maximum': 20},
+          'not_before': {'type': 'number', 'minimum': 0}, 'request_key': STR}, ['workflow_id']),
     tool('recover_context', 'Recover a registered project memory and unfinished workflows. Call before delegating again.', {'project': STR}, ['project']),
     tool('memory_note', 'Save a short project decision/checkpoint; do not store credentials.',
          {'project': STR, 'name': STR, 'content': STR}, ['project', 'name', 'content']),
@@ -99,7 +100,7 @@ def serve(home, client='unknown'):
                         value = {'saved': True}
                     elif name in {'list_agents', 'get_agent_status', 'get_agent_models'}:
                         from .registry import discover
-                        rows = discover(hub.config)
+                        rows = discover(hub.config, home=hub.store.home)
                         if name == 'list_agents':
                             value = rows
                         elif name == 'get_agent_models':

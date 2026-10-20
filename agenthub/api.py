@@ -78,17 +78,46 @@ class Hub:
         result['checks'] = [{'command':check['command'],'exit_code':check['exit_code']} for check in state['verification'].get('checks',[])]
         result['reviews'] = [{'provider':review['provider'],'verdict':review['report']['verdict'],
                               'findings':review['report']['findings'][:5]} for review in state['review'].get('reviews',[])]
+        result['reports'] = []
+        # Validated reports are already checkpointed in SQLite. Never read arbitrary
+        # artifact/source paths just to display a completed or partial answer.
+        for attempt in self.store.all("SELECT outcome FROM attempts WHERE workflow_id=? AND phase='implement' AND status='completed' ORDER BY created LIMIT 50", (workflow_id,)):
+            try:
+                report = json.loads(attempt['outcome'])
+                if not isinstance(report, dict) or report.get('outcome') != 'completed':
+                    continue
+                result['reports'].append({'summary': str(report.get('summary', ''))[:1500],
+                    'findings': [item[:700] for item in report.get('findings', [])[:5] if isinstance(item, str)]})
+            except (ValueError, TypeError):
+                continue
+        if len(result['reports']) > 2:
+            result['reports'] = [result['reports'][0], result['reports'][-1]]
+        result['changed_files'] = next((event['data'].get('files', [])[:8]
+            for event in state['events'] if event['kind'] == 'files_changed'), [])
         result['context_chars_by_call'] = [attempt['usage'].get('context_chars') for attempt in state['attempts'] if attempt['phase'] != 'verify']
         result['details'] = 'Request workflow_status with include_details=true only if needed.'
         return result
 
-    def retry(self, workflow_id, extra_calls=0, launch=True):
+    def retry(self, workflow_id, extra_calls=0, launch=True, not_before=0, request_key=None):
+        import math
+        if type(not_before) not in (int, float) or not math.isfinite(not_before) or not_before < 0:
+            raise ValueError('not_before must be a finite nonnegative Unix timestamp')
+        if request_key is not None and (not isinstance(request_key, str) or not 1 <= len(request_key) <= 128):
+            raise ValueError('Invalid retry request key')
         if not isinstance(extra_calls, int) or not 0 <= extra_calls <= 20:
             raise ValueError('extra_calls must be 0–20; zero preserves the existing cap')
         flow = self.store.workflow(workflow_id)
         with self.store.connection() as db:
             db.execute('BEGIN IMMEDIATE')
             current = db.execute('SELECT * FROM workflows WHERE id=?', (workflow_id,)).fetchone()
+            if request_key:
+                previous = db.execute("SELECT data FROM events WHERE workflow_id=? AND kind IN ('retry_requested','resume_scheduled') ORDER BY id DESC", (workflow_id,)).fetchall()
+                for event in previous:
+                    data = json.loads(event['data'])
+                    if data.get('request_key') == request_key:
+                        if data.get('extra_calls') != extra_calls or data.get('not_before', 0) != not_before:
+                            raise ValueError('Retry key was already used with different settings')
+                        return self.status(workflow_id)
             if current['status'] not in {'blocked', 'cancelled', 'needs_review'}:
                 raise ValueError('Only blocked/cancelled/needs_review workflows can be retried')
             active = db.execute("SELECT id FROM workflows WHERE project_id=? AND id != ? AND status IN ('queued','running','waiting','recovering')",
@@ -103,9 +132,13 @@ class Hub:
                 raise ValueError('Call cap exhausted; explicitly grant extra_calls to continue')
             phase = 'verify' if current['phase'] == 'review' else current['phase']
             review = '{}' if phase == 'verify' else current['review']
-            db.execute("UPDATE workflows SET status='queued',generation=generation+1,next_run=0,error='',max_calls=?,phase=?,review=?,created=?,updated=? WHERE id=?",
-                       (new_cap, phase, review, time.time(), time.time(), workflow_id))
-            self.store._event(db, workflow_id, 'retry_requested', {'extra_calls': extra_calls})
+            scheduled = not_before > time.time()
+            db.execute("UPDATE workflows SET status=?,generation=generation+1,next_run=?,error=?,max_calls=?,phase=?,review=?,created=?,updated=? WHERE id=?",
+                       ('waiting' if scheduled else 'queued', not_before if scheduled else 0,
+                        'Scheduled resume; no AI calls before next_run' if scheduled else '',
+                        new_cap, phase, review, time.time(), time.time(), workflow_id))
+            self.store._event(db, workflow_id, 'resume_scheduled' if scheduled else 'retry_requested',
+                              {'extra_calls': extra_calls, 'not_before': not_before, 'request_key': request_key})
         if launch:
             start_daemon(self.store.home)
         return self.status(workflow_id)

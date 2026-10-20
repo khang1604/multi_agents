@@ -1,0 +1,27 @@
+{
+  "name": "multi-agents-chat",
+  "displayName": "Multi Agents Hub Chat",
+  "description": "Send @hub prompts directly to your local Multi Agents orchestrator.",
+  "version": "0.1.1",
+  "publisher": "khang1604",
+  "engines": {"vscode": "^1.93.0"},
+  "categories": ["AI", "Chat"],
+  "main": "./extension.js",
+  "extensionKind": ["ui"],
+  "capabilities": {"untrustedWorkspaces": {"supported": false}, "virtualWorkspaces": false},
+  "activationEvents": ["onChatParticipant:multi-agents.hub"],
+  "contributes": {
+    "chatParticipants": [{
+      "id": "multi-agents.hub", "name": "hub", "fullName": "Multi Agents Hub",
+      "description": "Giao việc trực tiếp cho Hub; /agents, /status, /watch, /retry, /cancel",
+      "isSticky": true,
+      "commands": [
+        {"name": "agents", "description": "Xem agent; không gọi model"},
+        {"name": "status", "description": "Xem workflow của project"},
+        {"name": "watch", "description": "Theo dõi workflow đang chạy"},
+        {"name": "retry", "description": "Tiếp tục workflow bị chặn; giữ nguyên budget"},
+        {"name": "cancel", "description": "Dừng workflow, giữ code/checkpoint"}
+      ]
+    }]
+  }
+}

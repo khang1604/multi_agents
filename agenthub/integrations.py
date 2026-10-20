@@ -50,9 +50,14 @@ def install_client(home, client, apply=False, target=None, runner=None):
     if path.is_symlink():
         raise ValueError('Refusing symlink client config')
     # This is an explicitly selected official configuration file, never auth storage.
-    value = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
+    raw = path.read_text(encoding='utf-8-sig') if path.exists() else ''
+    value = json.loads(raw) if raw.strip() else {}
+    if not isinstance(value, dict):
+        raise ValueError('Client config must be a JSON object; existing file preserved')
     key = 'servers' if client == 'vscode' else 'mcpServers'
     entries = value.setdefault(key, {})
+    if not isinstance(entries, dict):
+        raise ValueError('Client server list must be a JSON object; existing file preserved')
     desired = server(home, client)
     if client == 'vscode':
         desired = {'type': 'stdio', **desired}

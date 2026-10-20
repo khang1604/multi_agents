@@ -23,7 +23,7 @@ thì vẫn gửi được yêu cầu mới. [Xem phần đã thử và còn thi�
 | Đỡ tốn quota cho việc nhỏ | Việc đơn giản dùng ít bước hơn; việc khó có thêm bước kiểm tra. Không tự tăng số lượt đã cho phép. |
 | Không để AI nào cũng đọc lại cả dự án | Chuyển phần phân tích đã có và những đoạn code cần thiết cho lượt sau. AI vẫn có thể cần đọc thêm khi thiếu thông tin. |
 | Biết code làm ra có chạy không | Chạy lệnh kiểm tra của dự án, lưu kết quả rồi cho AI xem lại khi cần. Test pass vẫn chưa chứng minh mọi tính năng đều đúng. |
-| Chấp nhận code theo cách mình muốn | Agent viết vào file trong bản làm việc riêng. Khi xong, bạn xem rồi Accept để áp dụng vào file dự án đang mở; có thể bật Auto accept riêng cho dự án. Không cần giải nén ZIP. |
+| Chấp nhận code theo cách mình muốn | Agent viết vào file trong bản làm việc riêng. Khi xong, bạn xem rồi Accept để áp dụng vào file dự án đang mở; có thể bật Auto accept riêng cho dự án. |
 | Không để file tạm phình mãi | Kiểm gói kết quả trước khi dọn bản làm việc tạm; việc đang chạy hoặc đang chờ được giữ lại. |
 | Hết quota thì làm tiếp sau | Lưu chỗ đang dở và giờ thử lại. Máy và Hub cần hoạt động để tiếp tục; không tự mua thêm lượt. |
 
@@ -83,10 +83,6 @@ Trên Windows, mở terminal mới sau khi cài. Nếu có yêu cầu, mở lạ
 cd /duong/dan/du-an-cua-ban
 ma init
 ```
-
-Bạn xác nhận đây là code được phép và chỉ có dữ liệu giả. Multi Agents ghi nhận
-đúng dự án, tìm lệnh kiểm tra và chạy kiểm tra ban đầu trong bản làm việc riêng.
-Thiếu điều kiện nào thì báo điều đó; không tự commit hoặc xóa thay đổi của bạn.
 
 Không cần chép Multi Agents vào từng dự án. Cài ở một nơi rồi dùng cho nhiều dự án.
 

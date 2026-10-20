@@ -23,11 +23,15 @@ thì vẫn gửi được yêu cầu mới. [Xem phần đã thử và còn thi�
 | Đỡ tốn quota cho việc nhỏ | Việc đơn giản dùng ít bước hơn; việc khó có thêm bước kiểm tra. Không tự tăng số lượt đã cho phép. |
 | Không để AI nào cũng đọc lại cả dự án | Chuyển phần phân tích đã có và những đoạn code cần thiết cho lượt sau. AI vẫn có thể cần đọc thêm khi thiếu thông tin. |
 | Biết code làm ra có chạy không | Chạy lệnh kiểm tra của dự án, lưu kết quả rồi cho AI xem lại khi cần. Test pass vẫn chưa chứng minh mọi tính năng đều đúng. |
-| Giữ nguyên code mình đang làm | Sửa trong bản làm việc riêng, không tự ghi đè hay ghép kết quả vào dự án gốc. |
-| Có kết quả rõ ràng để xem lại | Xuất phần code thay đổi và báo cáo thành ZIP. Bạn xem rồi quyết định đưa vào dự án. |
+| Xem và quyết định có nhận thay đổi hay không | Agent ghi code vào file trong bản làm việc riêng của dự án. Bạn xem phần thay đổi trước khi nhận; Hub không tự ghép vào thư mục gốc. Hiện chưa có nút xác nhận để tự áp dụng thay đổi. |
 | Không để file tạm phình mãi | Kiểm gói kết quả trước khi dọn bản làm việc tạm; việc đang chạy hoặc đang chờ được giữ lại. |
 | Hết quota thì làm tiếp sau | Lưu chỗ đang dở và giờ thử lại. Máy và Hub cần hoạt động để tiếp tục; không tự mua thêm lượt. |
-| Giao việc ngay trong chat | Kết nối qua MCP hoặc dùng `@hub` trong Copilot Chat. Từng giao diện vẫn cần chạy thử; không coi việc kết nối thành công là cả luồng đã hoạt động. |
+| Giao việc bằng `@hub <yêu cầu>` | Trong Copilot Chat đã cài Hub, nhập ví dụ `@hub Thêm bộ lọc công việc`. Hub nhận việc cho dự án đang mở và trả mã công việc để theo dõi. Nếu đã có việc đang chạy, yêu cầu mới chưa được gửi; bạn cần theo dõi hoặc dừng việc cũ trước. Chat khác có thể kết nối qua MCP. |
+| Xem AI đang có bằng `@hub /agents` | Liệt kê CLI mà Hub nhận diện và thông tin trạng thái đã biết. Lệnh này không gọi model; trạng thái có thể chưa đủ để khẳng định tài khoản còn quota. |
+| Xem nhanh tiến độ bằng `@hub /status` | Hiện trạng thái, bước đang làm, AI phụ trách, số lượt đã dùng và lỗi nếu có. Chỉ xem một lần, không tạo việc mới. |
+| Theo dõi tiếp bằng `@hub /watch` | Cập nhật tiến độ của việc đã giao trong tối đa khoảng 10 phút mỗi lần xem. Đóng hoặc dừng phần theo dõi không hủy việc đang chạy. |
+| Thử làm tiếp bằng `@hub /retry` | Yêu cầu tiếp tục việc sau khi bạn xử lý nguyên nhân bị chặn. Giữ nguyên giới hạn lượt AI; không cấp thêm quota và không bảo đảm lỗi đã hết. |
+| Dừng việc bằng `@hub /cancel` | Gửi yêu cầu dừng, giữ lại code và tiến độ đã lưu để xem hoặc tiếp tục sau. Không xóa thay đổi đã có. |
 
 Giới hạn lượt hiện tính theo **số lần chạy CLI**, chưa phải số token hoặc tiền chính xác.
 Một lượt CLI có thể gọi model nhiều lần bên trong.
@@ -145,8 +149,11 @@ Demo này giả lập câu trả lời của AI, nhưng vẫn dùng Git, lưu ti
 | `ma doctor` | Tìm nguyên nhân khi setup hoặc init báo lỗi. |
 | `ma --help` | Xem các lệnh còn lại. |
 
-Trong chat `@hub`, có `/agents`, `/status`, `/watch`, `/retry` và `/cancel`.
-Dừng theo dõi không có nghĩa đã hủy công việc; dùng `/cancel` nếu muốn yêu cầu dừng.
+Các lệnh chat nằm trong bảng tính năng ở đầu trang. Với `/status`, `/watch`,
+`/retry` và `/cancel`, nếu không nhập mã thì Hub chọn công việc gần nhất của dự án
+đang mở. Muốn chọn việc cụ thể, thêm mã phía sau, ví dụ `@hub /status abc123`.
+Mã phải thuộc dự án đang mở. Các lệnh này không gọi model để hỏi tiến độ;
+`/retry` có thể khiến Hub tiếp tục gọi CLI AI trong giới hạn lượt còn lại.
 
 ## Dữ liệu và quyền truy cập
 

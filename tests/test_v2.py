@@ -93,6 +93,55 @@ class RegistryTests(unittest.TestCase):
         with self.assertRaises(ValueError): validate_entry('copilot', {'roles': ['implement']})
 
 
+class WizardInputTests(unittest.TestCase):
+    def preferences(self, answers, selected=None):
+        from agenthub.wizard import collect_preferences
+        selected = selected or {'antigravity', 'codex', 'copilot'}
+        prompts, messages = [], []
+        values = iter(answers)
+        def ask(prompt):
+            prompts.append(prompt)
+            return next(values)
+        result = collect_preferences(defaults(), selected, [{'agent': n, 'model_catalog': []} for n in selected], ask, messages.append)
+        return result, prompts, messages
+
+    def test_common_auto_asks_fallback_once_and_keeps_roles_without_prompt(self):
+        result, prompts, _ = self.preferences(['AUTO', 'y', 'n'])
+        self.assertEqual({e['model_policy'] for e in result.values()}, {'AUTO'})
+        self.assertEqual(result['codex']['model_fallback'], 'INHERIT')
+        self.assertEqual(result['antigravity']['model_fallback'], 'INHERIT')
+        self.assertIsNone(result['copilot']['model_fallback'])
+        self.assertEqual(sum('model policy [' in p for p in prompts), 1)
+        self.assertEqual(sum('fallback for all' in p for p in prompts), 1)
+        self.assertFalse(any(' roles [' in p for p in prompts))
+
+    def test_common_inherit_applies_to_all_selected_agents(self):
+        result, prompts, _ = self.preferences(['INHERIT', ''])
+        self.assertEqual(set(result), {'antigravity', 'codex', 'copilot'})
+        self.assertTrue(all(e['model_policy'] == 'INHERIT' for e in result.values()))
+        self.assertEqual(len(prompts), 2)
+
+    def test_literal_blank_keeps_current_is_not_saved_as_role(self):
+        result, _, _ = self.preferences(['INHERIT', 'y', 'y', '', 'blank keeps current'], {'antigravity'})
+        self.assertNotIn('roles', result['antigravity'])
+
+    def test_invalid_role_reprompts_locally_then_accepts_supported_role(self):
+        result, prompts, messages = self.preferences(['INHERIT', 'y', 'y', '', 'implement', 'plan,review'], {'antigravity'})
+        self.assertEqual(result['antigravity']['roles'], ['plan', 'review'])
+        self.assertEqual(sum(' roles [' in p for p in prompts), 2)
+        self.assertTrue(any('Invalid roles' in m for m in messages))
+
+    def test_declining_auto_fallback_requires_new_explicit_policy(self):
+        result, _, messages = self.preferences(['AUTO', 'n', 'INHERIT', 'n'])
+        self.assertTrue(all(e['model_policy'] == 'INHERIT' for e in result.values()))
+        self.assertTrue(any('not applied' in m for m in messages))
+
+    def test_bad_common_policy_and_unknown_manual_model_can_be_corrected(self):
+        result, _, messages = self.preferences(['typo', 'MANUAL', 'unknown-fixture-model', 'INHERIT', 'n'])
+        self.assertTrue(all(e['model_policy'] == 'INHERIT' for e in result.values()))
+        self.assertTrue(any('not in the provider-reported catalog' in m for m in messages))
+
+
 class LocalTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='ma-v2-')
@@ -252,6 +301,21 @@ class LocalTests(unittest.TestCase):
         with self.assertRaises(ValueError): configure(self.hub, {'copilot'}, {'copilot': {'roles': ['implement']}})
         self.assertEqual((self.hub.store.home/'config.json').read_bytes(), before)
 
+    def test_setup_common_policy_finishes_without_per_agent_roles_or_installation(self):
+        import io
+        from agenthub.wizard import run
+        selected = {'antigravity', 'codex', 'copilot'}
+        rows = [{'agent': n, 'state': 'UNKNOWN', 'version': 'Unknown', 'authentication': 'UNKNOWN',
+                 'roles': defaults()['providers'][n]['roles'], 'model_catalog': []} for n in selected]
+        answers = ['AUTO', 'y', 'n'] + (['n'] if os.name == 'nt' else []) + ['']
+        security = self.hub.config['security'].copy()
+        with patch('agenthub.wizard.discover', return_value=rows), patch('agenthub.wizard.checkbox', return_value=selected), patch('builtins.input', side_effect=answers), patch('sys.stdout', io.StringIO()) as printed:
+            run(self.hub, check=False)
+        self.assertIn('Setup complete.', printed.getvalue())
+        self.assertNotIn('Setup did not complete', printed.getvalue())
+        self.assertEqual(self.hub.config['security'], security)
+        self.assertTrue(all(self.hub.config['providers'][n]['model_policy'] == 'AUTO' for n in selected))
+
     def test_client_setup_preserves_siblings_and_removes_owned_entry_only(self):
         path = self.base / 'external-client.json'
         path.write_text(json.dumps({'other_setting': 'keep', 'mcpServers': {'existing': {'command': 'fixture'}}}))
@@ -285,6 +349,13 @@ class LocalTests(unittest.TestCase):
         uninstall(home, get, set_)
         self.assertEqual(path[0], 'C:\\Other')
         self.assertTrue(marker.exists())
+
+    def test_install_recognizes_same_checkout_launcher_from_old_hub_path(self):
+        path = [str(ROOT)]
+        result = install_command(self.base/'install', lambda: path[0], lambda value: path.__setitem__(0, value),
+                                 which=lambda _: str(ROOT/'ma.cmd'))
+        self.assertEqual(path[0].split(';')[0], str(Path(result['installed']).parent))
+        self.assertTrue((ROOT/'ma.cmd').exists())
 
     def test_install_refuses_command_collision_and_rolls_back_path_error(self):
         home = self.base/'install'

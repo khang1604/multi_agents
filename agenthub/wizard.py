@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 import sys
 
-from .registry import discover, validate_entry
+from .registry import discover, validate_entry, SPECS
 from .settings import atomic_json, ensure_idle
 
 
@@ -57,6 +57,76 @@ def configure(hub, selected, policies=None):
             'security_changed': False}
 
 
+def choose_policy(config, selected, results, ask, write, label='All selected agents'):
+    """Choose one policy for a group; validate before proceeding, not at final save."""
+    while True:
+        choice = ask(label + ' model policy [KEEP/INHERIT/AUTO/MANUAL] (Enter=KEEP): ').strip().upper() or 'KEEP'
+        if choice == 'KEEP':
+            return {}
+        if choice not in {'INHERIT', 'AUTO', 'MANUAL'}:
+            write('Choose KEEP, INHERIT, AUTO or MANUAL. No settings have been saved.')
+            continue
+        policies = {name: {'model_policy': choice, 'model': None, 'model_fallback': None} for name in selected}
+        if choice == 'AUTO':
+            unsupported = [name for name in selected if not SPECS[name]['auto']]
+            if unsupported:
+                write('Native AUTO is unavailable for: ' + ', '.join(unsupported))
+                if ask('Allow Provider Default (INHERIT) fallback for all of them? [y/N]: ').strip().lower() not in {'y', 'yes'}:
+                    write('AUTO was not applied. Choose another common policy or explicitly allow fallback.')
+                    continue
+                for name in unsupported:
+                    policies[name]['model_fallback'] = 'INHERIT'
+        if choice == 'MANUAL':
+            model = ask('Shared model id (must be supported by every selected agent): ').strip()
+            for name in selected:
+                catalog = next((row.get('model_catalog', []) for row in results if row['agent'] == name), [])
+                policies[name].update(model=model, model_catalog=catalog)
+        errors = []
+        for name in selected:
+            try:
+                validate_entry(name, {**config['providers'][name], **policies[name]})
+            except ValueError as error:
+                errors.append(name + ': ' + str(error))
+        if errors:
+            write('\n'.join(errors))
+            write('Common policy was not applied. Use INHERIT, or keep current settings and customize individual agents.')
+            continue
+        return policies
+
+
+def collect_preferences(config, selected, results, ask=None, write=print):
+    ask = ask or input
+    names = sorted(selected)
+    if not names:
+        return {}
+    write('Choose the model policy ONCE for all selected agents: ' + ', '.join(names))
+    write('INHERIT uses each CLI default; it does not force the same model id across providers.')
+    policies = choose_policy(config, names, results, ask, write)
+    for name in names:
+        write(name + ' roles: ' + ', '.join(config['providers'][name]['roles']) + ' (kept automatically)')
+    if ask('Advanced: customize individual agents/model policies/roles? [y/N]: ').strip().lower() not in {'y', 'yes'}:
+        return policies
+    for name in names:
+        if ask('Customize ' + name + '? [y/N]: ').strip().lower() not in {'y', 'yes'}:
+            continue
+        current = {'providers': {name: {**config['providers'][name], **policies.get(name, {})}}}
+        override = choose_policy(current, [name], results, ask, write, label=name)
+        if override:
+            policies.setdefault(name, {}).update(override[name])
+        allowed = SPECS[name]['roles']
+        while True:
+            roles = ask(name + ' roles [' + ','.join(allowed) + '] (nhan Enter de giu nguyen): ').strip().lower()
+            if roles in {'', 'keep', 'default', 'blank keeps current', 'giữ nguyên', 'giu nguyen'}:
+                break
+            values = list(dict.fromkeys(s.strip() for s in roles.split(',')))
+            if not values or set(values) - set(allowed):
+                write('Invalid roles. Allowed: ' + ', '.join(allowed) + '. Press Enter to keep current roles.')
+                continue
+            policies.setdefault(name, {})['roles'] = values
+            break
+    return policies
+
+
 def _run(hub, check=True):
     print('MULTI AGENTS — TERMINAL SETUP (no provider install/login or model call)')
     print('Python:', sys.version.split()[0], 'Home:', hub.store.home)
@@ -68,22 +138,7 @@ def _run(hub, check=True):
         print(item['agent'], item['state'], item['version'], item['authentication'], 'roles=' + ','.join(item['roles']))
     selected = checkbox(list(hub.config['providers']),
                         [n for n, e in hub.config['providers'].items() if e.get('enabled')])
-    policies = {}
-    for name in sorted(selected):
-        current = hub.config['providers'][name]
-        choice = input(name + ' model policy [keep/INHERIT/AUTO/MANUAL]: ').strip().upper()
-        if choice and choice != 'KEEP':
-            entry = {'model_policy': choice}
-            if choice == 'MANUAL':
-                entry['model'] = input('Model id (must be in provider-reported catalog): ').strip()
-                entry['model_catalog'] = next(r['model_catalog'] for r in results if r['agent'] == name)
-            if choice == 'AUTO' and name != 'copilot':
-                if input('AUTO unavailable. Allow INHERIT fallback? [y/N]: ').lower() == 'y':
-                    entry['model_fallback'] = 'INHERIT'
-            policies[name] = entry
-        roles = input(name + ' roles (comma-separated, blank keeps current): ').strip()
-        if roles:
-            policies.setdefault(name, {})['roles'] = [s.strip() for s in roles.split(',')]
+    policies = collect_preferences(hub.config, selected, results)
     print(json.dumps(configure(hub, selected, policies), ensure_ascii=False, indent=2))
     if os.name == 'nt' and input('Install owned ma launcher in user PATH? [y/N]: ').lower() == 'y':
         from .lifecycle import install_command

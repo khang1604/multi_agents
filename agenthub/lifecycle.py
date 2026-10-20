@@ -50,7 +50,9 @@ def install_command(home, get_path=None, set_path=None, which=None):
         raise ValueError('CMD launcher paths cannot contain percent signs')
     which = which or shutil.which
     collision = which('ma')
-    if collision and Path(collision).resolve() != target:
+    # A source checkout already on PATH may expose our shipped ma.cmd through the
+    # older hub installer. It is the same application, not a foreign command.
+    if collision and Path(collision).resolve() not in {target, (root / 'ma.cmd').resolve()}:
         raise ValueError('ma already exists at ' + str(collision) + '; no command was overwritten')
     body = '@echo off\r\n"' + sys.executable + '" "' + str(root / 'ma.py') + '" --home "' + str(home) + '" %*\r\nexit /b %errorlevel%\r\n'
     if target.is_symlink() or (target.exists() and target.read_bytes() != body.encode('utf-8')):
@@ -66,7 +68,7 @@ def install_command(home, get_path=None, set_path=None, which=None):
     try:
         target.write_bytes(body.encode('utf-8'))
         if added:
-            (set_path or user_path)(';'.join(entries + [binpath]))
+            (set_path or user_path)(';'.join([binpath] + entries))
         atomic_json(record, {'launcher': str(target),
                     'sha256': hashlib.sha256(target.read_bytes()).hexdigest(), 'path_added': added or prior_ownership.get('path_added', False),
                     'bin': binpath, 'source': str(root)})

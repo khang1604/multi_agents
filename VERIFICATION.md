@@ -2,6 +2,12 @@
 
 ## V2 — Windows, 2026-10-20
 
+Bản sửa Setup Wizard: **106 unittest pass** trong 54.469 giây. Chọn model policy
+một lần cho toàn bộ agent đã bật, fallback AUTO chỉ xác nhận một lần; role mặc định
+được giữ tự động. Advanced cho phép tùy chỉnh riêng và sửa role không hợp lệ ngay
+tại ô nhập. Có regression cho chuỗi `blank keeps current` và trường hợp PATH cũ
+đã có ma.cmd từ cùng checkout. Kiểm thử dùng input/probe/PATH giả, không gọi model.
+
 - Python 3.13.15, Git 2.54.0.windows.1: **98 unittest pass** trong 55.011 giây.
 - Gồm 51 regression test và 47 test V2: discovery/auth probe giả, model policy/fallback,
   selection/roles, context hash/version, không ghi metadata vào repo, CLI Unicode,

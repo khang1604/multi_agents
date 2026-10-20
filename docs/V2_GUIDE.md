@@ -17,6 +17,14 @@ with arrows or j/k on an interactive Windows terminal), model policy and roles. 
 basic input fallback works without advanced TUI support. Keep selection unchanged
 by keeping current values; deselecting every agent is valid but cannot code a task.
 
+Choose the model policy once for all selected agents. Native AUTO capability is still
+checked separately; one explicit fallback approval covers selected agents without
+native AUTO. Roles are kept automatically. Per-agent model/role questions appear only
+after opting into Advanced customization. Invalid role input is corrected in place;
+press Enter (do not type the help text) to keep current roles. MANUAL applies one
+model ID only when every selected provider advertises it; otherwise use INHERIT or
+Advanced settings to choose different provider-specific models.
+
 The wizard asks separately before installing the owned `ma` launcher or changing a
 client configuration. It never installs/logs into providers, changes security
 attestations, starts a paid task or enables autostart. Failures restore prior Hub

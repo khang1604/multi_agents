@@ -42,9 +42,14 @@ unsupported; Unicode and spaces are supported.
 ```powershell
 ma agents list
 ma agents list --check
+ma agents list --check --json
 ma doctor --offline
 ma doctor
 ```
+
+Agent lists use one header and one line per agent, including enabled state,
+discovery state, authentication and model policy. Add `--json` for full diagnostics;
+`--check` still caches all details. READY does not confirm quota or a live model call.
 
 Without `--check`, discovery only resolves executable paths. Checks run bounded
 official version/help/auth-status commands in a temporary working directory, never

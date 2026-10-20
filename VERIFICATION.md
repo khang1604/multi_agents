@@ -2,6 +2,11 @@
 
 ## V2 — Windows, 2026-10-20
 
+Bản rút gọn `ma agents list`: **110 unittest pass** trong 57.986 giây. Mặc định
+hiển thị một dòng tiêu đề và một dòng mỗi agent; `--json` giữ đầy đủ chẩn đoán.
+Kiểm thử probe giả xác minh `--check` vẫn lưu đủ cache, trạng thái UNKNOWN/disabled
+không bị suy đoán, metadata dài/control character không tạo dòng thừa. Không gọi model.
+
 Bản sửa Setup Wizard: **106 unittest pass** trong 54.469 giây. Chọn model policy
 một lần cho toàn bộ agent đã bật, fallback AUTO chỉ xác nhận một lần; role mặc định
 được giữ tự động. Advanced cho phép tùy chỉnh riêng và sửa role không hợp lệ ngay

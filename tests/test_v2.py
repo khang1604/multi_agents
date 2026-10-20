@@ -1,5 +1,6 @@
 """V2 checks use synthetic repositories, fake probes and temporary client configs only."""
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -19,6 +20,53 @@ from agenthub.project_context import initialize, get_context, unregister, is_rem
 from agenthub.integrations import install_client, remove_client, server
 from agenthub.lifecycle import install_command, uninstall, path_entries
 from agenthub.wizard import checkbox, configure
+
+
+class AgentListTests(unittest.TestCase):
+    def rows(self):
+        return [dict(agent=name, enabled=name != 'claude', state='NOT_INSTALLED',
+                     authentication='UNKNOWN', model_policy='INHERIT',
+                     login_hint='synthetic verbose login hint', model_catalog=[], live_verified=False)
+                for name in ('codex', 'claude', 'copilot', 'antigravity')]
+
+    def test_default_is_five_lines_and_keeps_unknown_and_disabled_visible(self):
+        from agenthub.cli import main
+        with tempfile.TemporaryDirectory() as home, patch('agenthub.cli.discover', return_value=self.rows()) as discover, patch('sys.stdout', new_callable=io.StringIO) as stdout:
+            main(['--home', home, 'agents', 'list'])
+        lines = stdout.getvalue().splitlines()
+        self.assertEqual(len(lines), 5)
+        self.assertIn('OFF', lines[2])
+        self.assertTrue(all('NOT_INSTALLED' in line and 'UNKNOWN' in line for line in lines[1:]))
+        self.assertNotIn('login hint', stdout.getvalue())
+        self.assertFalse(discover.call_args.args[1])
+
+    def test_json_preserves_full_diagnostics(self):
+        from agenthub.cli import main
+        rows = self.rows()
+        with tempfile.TemporaryDirectory() as home, patch('agenthub.cli.discover', return_value=rows), patch('sys.stdout', new_callable=io.StringIO) as stdout:
+            main(['--home', home, 'agents', 'list', '--json'])
+        self.assertEqual(json.loads(stdout.getvalue()), rows)
+
+    def test_check_keeps_full_cache_with_compact_output(self):
+        from agenthub.cli import main
+        rows = self.rows()
+        with tempfile.TemporaryDirectory() as home, patch('agenthub.cli.discover', return_value=rows) as discover, patch('sys.stdout', new_callable=io.StringIO) as stdout:
+            main(['--home', home, 'agents', 'list', '--check'])
+            self.assertEqual(json.loads((Path(home) / 'agent-registry.json').read_text(encoding='utf-8')), rows)
+        self.assertTrue(discover.call_args.args[1])
+        self.assertEqual(len(stdout.getvalue().splitlines()), 5)
+
+    def test_provider_metadata_cannot_add_lines_or_unbounded_columns(self):
+        from agenthub.cli import agent_table
+        rows = self.rows()
+        rows[0].update(agent='codex\n\x1b' + 'x' * 100, state='READY', authentication='AUTHENTICATED')
+        rows[1]['authentication'] = 'NOT_AUTHENTICATED'
+        text = agent_table(rows)
+        self.assertEqual(len(text.splitlines()), 5)
+        self.assertTrue(all(len(line) <= 51 for line in text.splitlines()))
+        self.assertNotIn('\x1b', text)
+        self.assertIn('OK', text)
+        self.assertIn('NO', text)
 
 
 class RegistryTests(unittest.TestCase):

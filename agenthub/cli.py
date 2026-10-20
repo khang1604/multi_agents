@@ -18,6 +18,27 @@ def output(value):
     print(json.dumps(value, ensure_ascii=False, indent=2))
 
 
+def agent_table(rows):
+    """Bounded terminal summary; the registry and JSON retain full diagnostics."""
+    widths = (11, 3, 15, 7, 7)
+
+    def line(values):
+        cells = []
+        for value, width in zip(values, widths):
+            clean = ''.join(c for c in str(value) if c.isprintable())
+            if len(clean) > width:
+                clean = clean[:width - 3] + '...'
+            cells.append(clean.ljust(width))
+        return '  '.join(cells).rstrip()
+
+    result = [line(('AGENT', 'ON', 'STATE', 'AUTH', 'POLICY'))]
+    for row in rows:
+        auth = {'AUTHENTICATED': 'OK', 'NOT_AUTHENTICATED': 'NO'}.get(row.get('authentication'), 'UNKNOWN')
+        result.append(line((row['agent'], 'ON' if row.get('enabled') else 'OFF',
+                            row.get('state', 'UNKNOWN'), auth, row.get('model_policy', 'INHERIT'))))
+    return '\n'.join(result)
+
+
 def parser():
     p = argparse.ArgumentParser(prog='ma', description='Multi Agents — terminal-first local orchestrator')
     p.add_argument('--home', default=str(application_home()), help='External local data home')
@@ -32,6 +53,7 @@ def parser():
     doc = sub.add_parser('doctor'); doc.add_argument('--offline', action='store_true')
     agents = sub.add_parser('agents'); ac = agents.add_subparsers(dest='action', required=True)
     ls = ac.add_parser('list'); ls.add_argument('--check', action='store_true')
+    ls.add_argument('--json', action='store_true', help='Full registry details instead of the compact table')
     for action in ('enable', 'disable'):
         ap = ac.add_parser(action); ap.add_argument('agent', choices=SPECS); ap.add_argument('--project')
     models = ac.add_parser('models'); models.add_argument('agent', nargs='?', choices=SPECS)
@@ -97,7 +119,7 @@ def menu(hub):
         choice = input('Choose: ').strip()
         if choice == '0': return
         try:
-            if choice == '1': output(discover(hub.config))
+            if choice == '1': print(agent_table(discover(hub.config)))
             elif choice == '2': output(initialize(hub, Path.cwd()))
             elif choice == '3':
                 project = current_project(hub)
@@ -142,7 +164,8 @@ def main(argv=None):
         elif args.action == 'list':
             rows = discover(hub.config, args.check)
             if args.check: atomic_json(hub.store.home / 'agent-registry.json', rows)
-            output(rows)
+            if args.json: output(rows)
+            else: print(agent_table(rows))
         elif args.action in {'enable', 'disable'}:
             output(update_provider(hub, args.agent, {'enabled': args.action == 'enable'}, args.project))
         elif args.action == 'models':

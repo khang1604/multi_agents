@@ -1,5 +1,11 @@
 # Kiểm chứng bản demo
 
+Kiểm chứng Windows ngày 2026-10-19: Python 3.13.15, Git 2.54.0.windows.1,
+51 unittest pass sau khi sửa test CRLF/LF và thêm policy cách ly theo yêu cầu.
+Coverage mới gồm synthetic không yêu cầu cách ly, yêu cầu cách ly nhưng chưa xác nhận,
+config cũ, kiểu boolean không hợp lệ và tiếp tục chặn mạng không giới hạn.
+Không gọi model thật trong lần kiểm chứng này. Các ghi chú Linux bên dưới là lịch sử.
+
 Môi trường phát triển: Linux, Python 3.12, Git, Codex CLI 0.163.0-alpha.10.2.
 
 - 46 unittest pass sau khi thêm security gate, gồm retry/failover, quota wait,
@@ -18,7 +24,7 @@ Môi trường phát triển: Linux, Python 3.12, Git, Codex CLI 0.163.0-alpha.1
 - Claude/Copilot/Antigravity adapter chưa chạy model thật; CLI version/đăng nhập có thể
   cần điều chỉnh. IDE Antigravity không tự đảm bảo có lệnh agy.
 - Chưa có ACL đọc file hoặc firewall do Hub triển khai. Gate chỉ kiểm tra xác nhận
-  operator; phải chuẩn bị môi trường OS test cách ly theo docs/SECURITY.md.
+  operator; cách ly OS theo yêu cầu của người dùng, xem docs/SECURITY.md.
 - Retention không xóa dữ liệu user, source hoặc lịch sử global của provider.
 
 Chạy lại: `python -m unittest discover -s tests -v` và `python hub.py demo --simulate`.

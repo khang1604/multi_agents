@@ -427,13 +427,54 @@ class HubTests(unittest.TestCase):
 
 
 class SecurityTests(unittest.TestCase):
-    def test_default_blocks_and_requires_both_declarations(self):
+    def test_default_blocks_until_synthetic_data_confirmed(self):
         from agenthub.security import preflight
         from agenthub.config import defaults
         with self.assertRaisesRegex(ValueError, 'SECURITY BLOCKED'):
             preflight(defaults())
         with self.assertRaises(ValueError):
             preflight({'security': {'isolated_test_environment': True}})
+
+    def test_synthetic_environment_without_requested_isolation(self):
+        from agenthub.security import preflight
+        from agenthub.config import defaults
+        config = defaults()
+        config['security']['synthetic_data_only'] = True
+        preflight(config)
+        self.assertFalse(config['security']['isolated_test_environment'])
+        self.assertEqual(config['security']['isolation_description'], '')
+
+    def test_requested_isolation_requires_operator_attestation(self):
+        from agenthub.security import preflight
+        scope = {'require_isolation': True, 'synthetic_data_only': True}
+        with self.assertRaisesRegex(ValueError, 'requested isolation'):
+            preflight({'security': scope})
+        scope['isolated_test_environment'] = True
+        for description in ('', '   ', None, True):
+            scope['isolation_description'] = description
+            with self.subTest(description=description), self.assertRaises(ValueError):
+                preflight({'security': scope})
+        scope['isolation_description'] = 'Operator-confirmed test VM'
+        preflight({'security': scope})
+
+    def test_legacy_configuration_keeps_isolation_requirement(self):
+        from agenthub.security import preflight
+        with self.assertRaisesRegex(ValueError, 'requested isolation'):
+            preflight({'security': {'synthetic_data_only': True}})
+
+    def test_policy_boolean_types_do_not_bypass_security(self):
+        from agenthub.security import preflight
+        for value in ('false', 'true', 0, 1, None):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                preflight({'security': {'require_isolation': value, 'synthetic_data_only': True}})
+        with self.assertRaises(ValueError):
+            preflight({'security': {'require_isolation': False, 'synthetic_data_only': 'true'}})
+
+    def test_unrestricted_network_blocked_without_isolation_requirement(self):
+        from agenthub.security import preflight
+        config = {'security': {'require_isolation': False, 'synthetic_data_only': True}}
+        with self.assertRaisesRegex(ValueError, 'network'):
+            preflight(config, True)
 
     def test_unrestricted_network_blocks_even_with_attestation(self):
         from agenthub.security import preflight

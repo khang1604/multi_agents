@@ -26,8 +26,9 @@ Nếu máy chỉ nhận `py -3`, dùng `py -3` thay cho `python`.
 
 Trước khi chạy AI thật, đọc [GLOBAL_RULES.md](GLOBAL_RULES.md) và
 [docs/SECURITY.md](docs/SECURITY.md). Mặc định Hub **chặn workflow thật** cho đến khi
-người vận hành xác nhận môi trường đã cách ly và chỉ chứa dữ liệu synthetic.
-Không bật hai cờ xác nhận trên máy chứa dữ liệu thật để bỏ qua lỗi.
+người vận hành xác nhận chỉ chứa dữ liệu synthetic. Cách ly OS chỉ bắt buộc khi
+người dùng yêu cầu (`security.require_isolation: true`). Không tự khai báo dữ liệu
+giả hoặc đã cách ly để bỏ qua lỗi; xem docs/SECURITY.md về config cũ.
 
 ```powershell
 # Xem các đường dẫn global rules, chưa sửa file:
@@ -78,9 +79,9 @@ Thực hiện lần lượt:
    và khởi động chat agent mới để nạp global rules.
 7. Chưa cài hoặc đăng nhập CLI AI cũng phải chạy được demo --simulate. Không tự
    đăng nhập, đọc credential, gọi model thật, bật autostart hoặc giao task có phí.
-   Giữ security.isolated_test_environment và synthetic_data_only ở false.
-   Không tự xác nhận môi trường cách ly. Nếu tôi muốn thử AI thật sau đó, giải thích
-   điều kiện trong docs/SECURITY.md và yêu cầu tôi chuẩn bị/xác nhận ranh giới test.
+   Giữ security.isolated_test_environment và synthetic_data_only ở false trong bước
+   cài đặt. Khi tôi muốn thử AI thật, cần tôi xác nhận dữ liệu synthetic; chỉ yêu cầu
+   cách ly OS nếu tôi yêu cầu. Không tự khai báo đã cách ly; xem docs/SECURITY.md.
 8. Cài lệnh dùng từ folder dự án bằng scripts/install-command.ps1; tôi cho phép
    thêm đúng thư mục Hub vào PATH của user hiện tại, không sửa PATH hệ thống.
    Nếu policy chặn script thì không bypass: hướng dẫn gọi hub.cmd bằng đường dẫn
@@ -153,7 +154,7 @@ Nếu vẫn lỗi JSON trên PowerShell cũ, dùng cách đăng ký bằng Pytho
 `here` giữ nguyên cờ security. Chỉ dùng trong source được phép; tự nhận diện không có nghĩa
 đã cách ly hay được phép gọi API thật.
 
-Sau khi đã chuẩn bị môi trường test và xác nhận điều kiện bảo mật, giao việc bằng tên
+Sau khi đã xác nhận dữ liệu synthetic và các điều kiện bảo mật được yêu cầu, giao việc bằng tên
 project mà `hub here` trả về, hoặc dùng MCP trong Antigravity:
 
 ```bat
@@ -185,7 +186,7 @@ python hub.py doctor
 python hub.py demo --simulate
 python hub.py demo
 python hub.py mcp-config
-# Chỉ chạy sau khi đã chuẩn bị và xác nhận môi trường test cách ly:
+# Chỉ chạy sau khi xác nhận synthetic và cách ly nếu người dùng yêu cầu:
 python hub.py run demo --task-file examples/todo/TASK.md --request-key todo-filter-1
 python hub.py status --watch
 ```

@@ -5,32 +5,47 @@ vẫn chạy trên fixture tự tạo, không gọi model. Mọi lời gọi CLI
 
 ## Điều kiện trước khi bật
 
-1. Tạo VM hoặc tài khoản OS/container dành riêng cho development. Chỉ đưa source đã
-   duyệt và fixture synthetic vào đó. Không mount home chính, .env, cloud credentials,
-   DB dump, volume production hoặc log người dùng. Không đưa dữ liệu thật vào Git.
-2. Chặn mạng của công cụ mặc định bằng firewall/proxy bên ngoài Hub. Nếu cần API test,
-   khai báo chính xác hostname/port/method và thực thi allowlist ở proxy/firewall.
-   Mạng của model provider cần cấu hình riêng; một cờ mạng chung không tạo allowlist.
-3. Dùng tài khoản API test riêng, không có quyền production. Không dùng dữ liệu thật
-   dù đã đặt trong môi trường test. Không chuyển credential/payload vào task hoặc memory.
-4. Người vận hành kiểm tra ranh giới trên, rồi sửa `data/config.json` **bên trong môi
-   trường đã cách ly**. Không để agent tự sửa policy hoặc xem đây là bước bỏ qua lỗi:
+1. Người dùng cho phép source cụ thể và xác nhận chỉ có dữ liệu synthetic. Không mở
+   secrets, .env, DB thật hoặc log người dùng. Không đưa dữ liệu thật vào Git/task/memory.
+2. Cách ly OS chỉ bắt buộc khi người dùng yêu cầu. Với project demo đã xác nhận chỉ dùng
+   dữ liệu giả, người dùng có thể chọn `require_isolation: false`; không cần khai báo
+   giả rằng môi trường đã cách ly. Nếu chưa rõ dữ liệu, vẫn chặn workflow thật.
+3. Nếu dùng API, chỉ dùng tài khoản test và endpoint/port/method được cho phép. Không dùng
+   `--network` không giới hạn. Giữ sandbox và permission của CLI, không thêm cờ bypass.
+4. Khối security dưới đây thuộc toàn bộ Hub home, không phải riêng một project. Chỉ đăng
+   ký source đã được phép và xác nhận synthetic trong home đó; dùng `--home` riêng nếu
+   cần phạm vi khác. Các giá trị là quyết định/xác nhận của người vận hành. Agent chỉ cập
+   nhật khi người dùng đã chỉ dẫn rõ, không tự xác nhận dữ liệu hay cách ly để né lỗi.
+
+Ví dụ người dùng xác nhận dữ liệu giả và không yêu cầu cách ly OS:
 
 ```json
 "security": {
-  "isolated_test_environment": true,
+  "require_isolation": false,
+  "isolated_test_environment": false,
   "synthetic_data_only": true,
-  "isolation_description": "Mô tả ranh giới OS, source/fixture được phép và firewall test thực tế"
+  "isolation_description": ""
 }
 ```
 
-Hai giá trị true là xác nhận của người vận hành, không phải kết quả Hub tự kiểm chứng.
+Mặc định mới: `require_isolation` là false, nhưng `synthetic_data_only` vẫn false nên
+workflow thật bị chặn tới khi người dùng xác nhận dữ liệu. Config cũ không có
+`require_isolation` tiếp tục yêu cầu cách ly; người vận hành cần chọn rõ true/false
+để chuyển policy. Dùng boolean JSON, không dùng chuỗi `"false"` hoặc `"true"`.
+
+Nếu người dùng yêu cầu cách ly, đặt `require_isolation: true`; workflow thật bị chặn
+tới khi người dùng xác nhận `isolated_test_environment: true` cùng
+`isolation_description` không rỗng. Khi đó cần VM/container hoặc tài khoản OS riêng,
+chỉ đưa source đã duyệt và synthetic vào; không mount home/secrets/production. Chặn
+mạng tool mặc định bằng firewall/proxy, allowlist API test chính xác và tách mạng model
+provider. Các test command cũng chạy trong ranh giới được yêu cầu đó.
+
 Hub chưa triển khai ACL đọc file, firewall allowlist hoặc redaction/DLP hoàn chỉnh.
 Codex workspace-write không đảm bảo chặn đọc mọi file ngoài repo. Các CLI còn lại cũng
 không có sandbox thống nhất. Do đó không thể cam kết ngăn dữ liệu thật chỉ bằng RULE.
-Giữ mặc định false nếu chưa có cách ly. Không dùng `--network`: Hub chặn lựa chọn đó
+Không khai báo đã cách ly nếu chưa có. Không dùng `--network`: Hub chặn lựa chọn đó
 trong workflow thật vì không kiểm chứng được endpoint. Không đặt provider flags bỏ qua
-permission/sandbox. Các test command của dự án cũng cần chạy trong cùng ranh giới.
+permission/sandbox.
 
 ## Cài global rules trên Windows
 

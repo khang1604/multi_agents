@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 
 from .platforms import resolve_command, spawn, stop_tree
 
@@ -73,7 +74,7 @@ def common_candidates(name):
         if name == 'claude':
             relative += [Path.home() / '.local/bin/claude.exe']
         if name == 'antigravity':
-            relative += [program / 'Google/antigravity-cli/agy.exe']
+            relative += [local / 'agy/bin/agy.exe', program / 'Google/antigravity-cli/agy.exe']
         values.extend([str(p)] for p in relative if p.is_file())
     return values
 
@@ -91,6 +92,20 @@ def probe(command, timeout=8):
         return process.returncode, (out.read(65536) + err.read(65536)).decode('utf-8', errors='replace')
 
 
+def execution_command(name, entry):
+    """Use the same bounded executable candidates for discovery and execution."""
+    if entry.get('command') and entry['command'] != [SPECS[name]['client']]:
+        # A custom/pinned command must never silently become another installation.
+        return resolve_command(entry['command'])
+    commands = [entry['command']] if entry.get('command') else []
+    for command in commands + common_candidates(name):
+        try:
+            return resolve_command(command)
+        except (OSError, ValueError):
+            continue
+    raise FileNotFoundError(name + ' CLI is not installed/on PATH')
+
+
 def discover_agent(name, entry, check=False, runner=None):
     if name not in SPECS:
         raise ValueError('Unknown agent')
@@ -100,18 +115,12 @@ def discover_agent(name, entry, check=False, runner=None):
               'model_policy': entry.get('model_policy', 'MANUAL' if entry.get('model') else 'INHERIT'),
               'configured_model': entry.get('model') or 'Provider Default',
               'actual_model': 'Unknown', 'login_hint': SPECS[name]['login'],
-              'adapter_protocol_detected': False, 'live_verified': False, 'model_catalog': [], 'quota_calls': 0,
+              'adapter_protocol_detected': False, 'status_checked': check,
+              'live_verified': False, 'model_catalog': [], 'quota_calls': 0,
               'ide_installed': bool(shutil.which('antigravity') or shutil.which('agy-ide')) if name == 'antigravity' else None}
-    commands = [entry['command']] if entry.get('command') else []
-    commands += common_candidates(name)
-    resolved = None
-    for command in commands:
-        try:
-            resolved = resolve_command(command)
-            break
-        except (OSError, ValueError):
-            continue
-    if not resolved:
+    try:
+        resolved = execution_command(name, entry)
+    except (OSError, ValueError):
         return result
     result.update(state='INSTALLED', command=resolved)
     if not check:
@@ -154,8 +163,53 @@ def discover_agent(name, entry, check=False, runner=None):
     return result
 
 
-def discover(config, check=False, runner=None):
-    return [discover_agent(name, config['providers'].get(name, {}), check, runner) for name in SPECS]
+def record_live_success(home, name, entry):
+    """Record actual adapter success, separate from credentials and operator claims."""
+    from .confirmations import fingerprint
+    from .settings import atomic_json
+    from .platforms import FileLock
+    path = Path(home) / 'agent-live-observations.json'
+    with FileLock(Path(home) / 'agent-live-observations.lock'):
+        if path.is_symlink():
+            raise ValueError('Refusing symlink readiness evidence')
+        values = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
+        row = discover_agent(name, entry)
+        values[name] = {'source': 'cli_response', 'fingerprint': fingerprint(row), 'succeeded_at': time.time()}
+        atomic_json(path, values, backup=False)
+
+
+def discover(config, check=False, runner=None, home=None):
+    rows = [discover_agent(name, config['providers'].get(name, {}), check, runner) for name in SPECS]
+    if home is not None:
+        from .confirmations import apply
+        rows = apply(rows, home)
+        from .confirmations import fingerprint
+        from .store import Store
+        path = Path(home) / 'agent-live-observations.json'
+        observations = {}
+        if path.is_file() and not path.is_symlink() and path.stat().st_size <= 65536:
+            try:
+                observations = json.loads(path.read_text(encoding='utf-8'))
+                if not isinstance(observations, dict): observations = {}
+            except (OSError, ValueError):
+                pass
+        health = {h['provider']: h for h in Store(home).all('SELECT * FROM health')}
+        for row in rows:
+            observed = observations.get(row['agent'], {})
+            when = observed.get('succeeded_at', 0) if isinstance(observed, dict) else 0
+            if (isinstance(observed, dict) and observed.get('source') == 'cli_response'
+                    and type(when) in (int, float) and 0 < when <= time.time()
+                    and row['state'] not in {'NOT_INSTALLED', 'UNAVAILABLE'}
+                    and row['authentication'] != 'NOT_AUTHENTICATED'
+                    and (not check or row['adapter_protocol_detected'])
+                    and observed.get('fingerprint') == fingerprint(row)):
+                row.update(state='READY', live_verified=True, readiness_source='cli_response', last_success_at=when)
+                row.pop('reason', None)
+            cooldown = health.get(row['agent'], {})
+            if cooldown.get('until', 0) > time.time():
+                row.update(state='UNAVAILABLE', cooldown_until=cooldown['until'],
+                           reason='Đang chờ ' + cooldown['reason'].split(':', 1)[0])
+    return rows
 
 
 def model_info(config, name, home):

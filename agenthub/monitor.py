@@ -23,6 +23,8 @@ def render(state):
         lines.append(time.strftime('[%H:%M:%S]', time.localtime(event['created'])) + ' ' + text(event['kind']) + ' ' + brief(data))
     if state.get('error'):
         lines.append('Reason: ' + text(state['error']))
+    if state.get('next_run') and state['status'] == 'waiting':
+        lines.append('Next retry: ' + time.strftime('%Y-%m-%d %H:%M:%S %z', time.localtime(state['next_run'])))
     if state.get('delivery'):
         lines.append('Delivery: ' + state['delivery'])
     return '\n'.join(lines)

@@ -32,6 +32,11 @@ class Result:
     error: str = ''
     usage: dict = field(default_factory=dict)
     unsafe_to_continue: bool = False
+    failure_category: str | None = None
+
+
+class TaskBlocked(ValueError):
+    """A valid model response about the task, not a provider transport failure."""
 
 
 def validate_report(value):
@@ -46,7 +51,7 @@ def validate_report(value):
     if not isinstance(value['summary'], str) or len(value['summary']) > 12000:
         raise ValueError('Invalid report summary')
     if value['outcome'] == 'blocked':
-        raise ValueError(value['summary'] + '\n' + '\n'.join(value['findings']))
+        raise TaskBlocked(value['summary'] + '\n' + '\n'.join(value['findings']))
     return value
 
 
@@ -102,7 +107,8 @@ def extract_report(stdout, result_file=None):
 
 
 def build_command(provider, entry, role, prompt, folder, network):
-    prefix = resolve_command(entry['command'])
+    from .registry import execution_command
+    prefix = execution_command(provider, entry)
     from .registry import model_arguments
     model = model_arguments(provider, entry)
     extras = entry.get('extra_args', [])
@@ -138,6 +144,7 @@ def build_command(provider, entry, role, prompt, folder, network):
         if role == 'implement':
             raise ValueError('Copilot is configured as planner/reviewer only in v0.1')
         return prefix + ['-p', prompt, '--output-format', 'json', '--no-ask-user',
+                         '--disable-builtin-mcps', '--available-tools=', '--no-remote', '--no-remote-export',
                          '--deny-tool=shell', '--deny-tool=write', '--deny-tool=edit'] + model + extras, None, None
     if provider == 'antigravity':
         if role == 'implement':
@@ -160,13 +167,19 @@ def instruction(role):
     if role == 'review':
         return base + ('You are a reviewer. DO NOT call tools or edit files. Review the exact supplied diff, '
                        'acceptance criteria and verification evidence. Set verdict=approve only when supported; '
-                       'otherwise changes_requested with actionable findings. Do not claim to have run tests. ')
+                       'otherwise changes_requested with actionable findings. Do not claim to have run tests. '
+                       'Do not require a report to embed the current whole-worktree fingerprint: editing the report '
+                       'changes that fingerprint. Exact fingerprints belong in external Hub evidence. Cached or '
+                       'UP-TO-DATE test runs are not fresh test execution; accept accurately attributed earlier '
+                       'verifier results and this limitation rather than requiring cache-status wording to chase each rerun. ')
     return base + ('Implement the objective in this isolated worktree. Read existing project instructions first. '
                    'The supplied Context Pack contains current file hashes, numbered excerpts and prior analysis. '
                    'Reuse this evidence; do not scan or reread the entire repository. '
                    'Read only missing ranges/dependencies or files that have changed. '
                    'Preserve completed work. Do not access credentials, other projects or the Hub data directory. '
                    'Fix the supplied review findings/test failures. Verification is run independently by the Hub. '
+                   'For audit reports, keep whole-worktree fingerprints in external Hub evidence, not inside the '
+                   'report itself. Attribute verifier results to the Hub and distinguish cached/up-to-date from fresh execution. '
                    'Set verdict=not_applicable. ')
 
 
@@ -191,7 +204,8 @@ class Invoker:
                     (folder / 'prompt.txt').open('rb') as prompt_input:
                 process = spawn(command, cwd=workspace, stdin=prompt_input if stdin is not None else subprocess.DEVNULL,
                                 stdout=out, stderr=err,
-                                env={**os.environ, 'MULTI_AGENTS_WORKER': folder.parent.name})
+                                env={**os.environ, **self.config.get('_execution_environment', {}),
+                                     'MULTI_AGENTS_WORKER': folder.parent.name})
             on_pid(process.pid)
             deadline = time.monotonic() + self.config['agent_timeout_seconds']
             while process.poll() is None:
@@ -213,6 +227,8 @@ class Invoker:
             report, usage = extract_report(stdout, result_file)
             (folder / 'report.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
             return Result(report=report, usage=usage)
+        except TaskBlocked as error:
+            return Result(error=str(error), failure_category='task_blocked')
         except Exception as error:
             stopped = stop_tree(process) if process is not None else True
             return Result(error=str(error), unsafe_to_continue=not stopped)

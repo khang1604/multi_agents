@@ -22,7 +22,8 @@ def failure(text):
         return 'permissions'
     if any(t in text for t in ['not authenticated', 'authentication required', 'invalid api key', 'unauthorized', 'login required', 'expired credentials']):
         return 'auth'
-    if any(t in text for t in ['usage limit', 'quota exceeded', 'quota_exceeded', 'session limit', 'out of credits', 'insufficient_quota']):
+    if any(t in text for t in ['usage limit', 'quota exceeded', 'quota_exceeded', 'individual quota reached',
+                               'session limit', 'out of credits', 'insufficient_quota']):
         return 'quota'
     if any(t in text for t in ['429', 'rate limit', 'overloaded', '529', '503', '502', 'connection reset', 'connection refused', 'error sending request', 'network is unreachable', 'stream disconnected', 'temporary failure in name resolution', 'timed out']):
         return 'temporary'
@@ -43,6 +44,15 @@ def reset_time(text, now=None):
     if match:
         multiplier = {'s': 1, 'm': 60, 'h': 3600}.get((match[2] or 's')[0].lower(), 1)
         return now + min(int(match[1]) * multiplier, 8 * 86400)
+    # Official CLI durations may span several days: "Resets in 124h1m3s".
+    match = re.search(r'\bresets? in\s+((?:\d+[hms])+)(?=$|[\s.,"\x27)])', text, re.I)
+    if match:
+        parts = re.findall(r'(\d+)([hms])', match[1].lower())
+        units = [unit for _, unit in parts]
+        if len(set(units)) == len(units) and units == sorted(units, key='hms'.index):
+            delay = sum(int(value) * {'h': 3600, 'm': 60, 's': 1}[unit] for value, unit in parts)
+            if 0 < delay <= 8 * 86400:
+                return now + delay
     return None
 
 
@@ -60,7 +70,8 @@ def choose(config, store, role, priority, excluded=(), now=None):
         if health.get(name, {}).get('until', 0) > now:
             continue
         try:
-            resolve_command(entry['command'])
+            from .registry import execution_command
+            execution_command(name, entry)
         except (OSError, ValueError):
             continue
         return name

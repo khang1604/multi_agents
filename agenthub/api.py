@@ -77,6 +77,11 @@ class Hub:
         result = {key:state[key] for key in ['id','status','phase','leader','complexity','calls','max_calls','next_run','workspace','delivery','workspace_retired','daemon','acceptance']}
         result['summary'] = state['summary'][:1500]
         result['error'] = state['error'][-1500:]
+        active = next((a for a in reversed(state['attempts']) if a['generation'] == state['generation']
+                       and a['phase'] == state['phase']), None)
+        result['current_agent'] = ({'provider': active['provider'], 'role': active['phase'],
+                                    'status': active['status'], 'model': active['usage'].get('actual_model', 'UNKNOWN')}
+                                   if active else None)
         result['checks'] = [{'command':check['command'],'exit_code':check['exit_code']} for check in state['verification'].get('checks',[])]
         result['reviews'] = [{'provider':review['provider'],'verdict':review['report']['verdict'],
                               'findings':review['report']['findings'][:5]} for review in state['review'].get('reviews',[])]

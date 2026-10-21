@@ -21,7 +21,7 @@ thì vẫn gửi được yêu cầu mới. [Xem phần đã thử và còn thi�
 | AI lỗi thì có công cụ khác làm tiếp | Lưu tiến độ rồi thử công cụ khác còn dùng được. Nếu không còn công cụ phù hợp, sẽ chờ hoặc báo cần bạn xử lý. |
 | Đóng chat rồi quay lại không phải giải thích từ đầu | Lưu việc đang làm, quyết định đã có và lỗi còn lại trên máy. |
 | Đỡ tốn quota cho việc nhỏ | Việc đơn giản dùng ít bước hơn; việc khó có thêm bước kiểm tra. Không tự tăng số lượt đã cho phép. |
-| Không để AI nào cũng đọc lại cả dự án | Chuyển phần phân tích đã có và những đoạn code cần thiết cho lượt sau. AI vẫn có thể cần đọc thêm khi thiếu thông tin. |
+| Không để AI nào cũng đọc lại cả dự án | Bàn giao mục tiêu, cách đã thử/lý do thất bại và bước tiếp theo; giữ hash và kết quả test riêng. [Chi tiết](docs/HANDOFF.md). |
 | Biết code làm ra có chạy không | Chạy lệnh kiểm tra của dự án, lưu kết quả rồi cho AI xem lại khi cần. Test pass vẫn chưa chứng minh mọi tính năng đều đúng. |
 | Chấp nhận code theo cách mình muốn | Agent viết vào file trong bản làm việc riêng. Khi xong, bạn xem rồi Accept để áp dụng vào file dự án đang mở; có thể bật Auto accept riêng cho dự án. |
 | Không để file tạm phình mãi | Kiểm gói kết quả trước khi dọn bản làm việc tạm; việc đang chạy hoặc đang chờ được giữ lại. |
@@ -134,6 +134,7 @@ Demo này giả lập câu trả lời của AI, nhưng vẫn dùng Git, lưu ti
 | `ma agents list --check` | Xem CLI nào có trên máy và thông tin đăng nhập kiểm tra được. |
 | `ma status --watch` | Xem công việc đang đến đâu mà không hỏi AI liên tục. |
 | `ma logs` | Xem lượt nào đã chạy hoặc gặp lỗi. |
+| `ma handoff ID` | Xem bước tiếp theo và lý do loại các hướng đã thử; `--json` để xem đầy đủ. |
 | `ma diff` | Xem phần code thay đổi trước khi Accept. |
 | `ma accept ID` | Chấp nhận và áp dụng code đã hoàn tất vào file dự án; lệnh này chính là xác nhận của bạn. |
 | `ma auto-accept on` / `off` / `status` | Bật, tắt hoặc xem chế độ tự áp dụng cho dự án trong thư mục hiện tại. |

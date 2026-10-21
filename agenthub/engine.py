@@ -11,6 +11,7 @@ from .platforms import FileLock, AlreadyRunning, pid_alive, spawn, stop_tree, re
 from .policy import choose, failure, reset_time
 from .store import ACTIVE, encode
 from . import workspace as ws
+from .handoff import checkpoint, guard
 
 
 class Engine:
@@ -26,7 +27,30 @@ class Engine:
             if alive:
                 self.store.update(flow['id'], status='recovering', error='Waiting for old process to exit; duplicate writers are forbidden')
                 continue
+            saved = self.store.one('SELECT * FROM attempts WHERE workflow_id=? AND generation=? AND status=\'completed\' ORDER BY ended DESC LIMIT 1', (flow['id'], flow['generation']))
+            if not attempts and saved and saved['outcome']:
+                report = json.loads(saved['outcome'])
+                if saved['phase'] in {'plan', 'implement', 'review'} and report.get('outcome') == 'completed':
+                    original = self.config
+                    from .settings import effective_config
+                    self.config = effective_config(original, self.store.home, flow['project_id'])
+                    try:
+                        observed = json.loads(flow['handoff']).get('checkpoint', {}).get('hub_observation', {})
+                        current_hash = ws.fingerprint(flow['workspace'], self.store)
+                        if saved['phase'] == 'review' and observed.get('fingerprint_after') != current_hash:
+                            self.store.update(flow['id'], status='queued', phase='verify', review='{}', error='Source changed after saved review; rerun verification')
+                        else:
+                            self._apply_report(flow, self.store.project(flow['project_id']), saved['phase'], saved['provider'], report,
+                                               observed.get('fingerprint_before', current_hash))
+                        self.store.event(flow['id'], 'saved_report_recovered', {'attempt': saved['id'], 'ai_calls_consumed': 0})
+                    finally:
+                        self.config = original
+                    continue
             with self.store.connection() as db:
+                current = dict(db.execute('SELECT * FROM workflows WHERE id=?', (flow['id'],)).fetchone())
+                for attempt in attempts:
+                    checkpoint(db, current, attempt, error='Interrupted process; no final report')
+                    current = dict(db.execute('SELECT * FROM workflows WHERE id=?', (flow['id'],)).fetchone())
                 db.execute("UPDATE attempts SET status='interrupted',ended=? WHERE workflow_id=? AND status IN ('running','orphan')",
                            (time.time(), flow['id']))
             self.store.update(flow['id'], status='queued', generation=flow['generation'] + 1,
@@ -80,11 +104,15 @@ class Engine:
         with self.store.connection() as db:
             db.execute('UPDATE attempts SET pid=? WHERE id=?', (pid, attempt_id))
 
-    def _finish_attempt(self, attempt_id, result):
+    def _finish_attempt(self, attempt_id, result, observation=None):
         with self.store.connection() as db:
+            db.execute('BEGIN IMMEDIATE')
+            attempt = dict(db.execute('SELECT * FROM attempts WHERE id=?', (attempt_id,)).fetchone())
+            flow = dict(db.execute('SELECT * FROM workflows WHERE id=?', (attempt['workflow_id'],)).fetchone())
+            checkpoint(db, flow, attempt, result.report or result.checkpoint_report, result.error, observation)
             db.execute('UPDATE attempts SET status=?,ended=?,outcome=?,error=?,usage=? WHERE id=?',
                        ('completed' if result.report else 'failed', time.time(),
-                        encode(result.report) if result.report else None, result.error[-6000:], encode(result.usage), attempt_id))
+                        encode(result.report or result.checkpoint_report) if result.report or result.checkpoint_report else None, result.error[-6000:], encode(result.usage), attempt_id))
         if result.report and result.report.get('outcome') == 'completed':
             attempt = self.store.one('SELECT provider FROM attempts WHERE id=?', (attempt_id,))
             if attempt and attempt['provider'] in self.config['providers']:
@@ -209,6 +237,11 @@ class Engine:
                 self.store.event(flow['id'], 'worker_environment_failed',
                                  {'provider': provider, 'ai_calls_consumed': 0})
                 return
+        guard(json.loads(flow['handoff']), ws.fingerprint(path, self.store), role)
+        context_limit = min(self.config['max_context_chars'], 14000) if provider in {'antigravity','copilot'} else self.config['max_context_chars']
+        from .adapters import context_capacity
+        context_limit = min(context_limit, context_capacity(provider, role))
+        pack = ws.build_pack(self.store, flow, project, role, context_limit, security=self.config.get('security'))
         generation = flow['generation'] + 1
         old_leader = flow['leader']
         leader = provider if role in {'plan', 'review'} else old_leader
@@ -223,8 +256,6 @@ class Engine:
             self.store.event(flow['id'], 'self_review', {'provider': provider, 'independent': False})
         folder = self.store.home / 'runs' / flow['id'] / f"{flow['calls']:02d}-{role}-{provider}"
         attempt_id = self._attempt(flow, provider, role, folder)
-        context_limit = min(self.config['max_context_chars'], 14000) if provider in {'antigravity','copilot'} else self.config['max_context_chars']
-        pack = ws.build_pack(self.store, flow, project, role, context_limit, security=self.config.get('security'))
         context = pack.pop('text')
         folder.mkdir(parents=True, exist_ok=True)
         (folder / 'context-pack.json').write_text(encode(pack), encoding='utf-8')
@@ -240,7 +271,8 @@ class Engine:
         readonly_changed = role in {'plan', 'review'} and ws.fingerprint(path, self.store) != before
         if readonly_changed:
             result = Result(error='Read-only role changed the worktree; inspect artifacts before continuing')
-        self._finish_attempt(attempt_id, result)
+        self._finish_attempt(attempt_id, result, {'fingerprint_before': before,
+                                                   'fingerprint_after': ws.fingerprint(path, self.store)})
         if self._cancelled(flow['id'], generation):
             self.store.event(flow['id'], 'late_result_ignored', {'attempt': attempt_id, 'generation': generation})
             return
@@ -271,7 +303,11 @@ class Engine:
             # Next deterministic tick elects another available provider in this exact phase.
             return
         self.store.health(provider, 0, '')
-        report = result.report
+        self._apply_report(flow, project, role, provider, result.report, before)
+
+    def _apply_report(self, flow, project, role, provider, report, before):
+        generation, path = flow['generation'], flow['workspace']
+        worker = self.store.one("SELECT provider FROM attempts WHERE workflow_id=? AND phase='implement' AND status='completed' ORDER BY created DESC LIMIT 1", (flow['id'],))
         if role == 'implement':
             changed = ws.git(path, 'diff', '--name-only', 'HEAD').splitlines()
             changed += ws.git(path, 'ls-files', '--others', '--exclude-standard').splitlines()
@@ -349,7 +385,9 @@ class Engine:
                     stop_tree(process)
         evidence = {'fingerprint_before': before, 'fingerprint_after': ws.fingerprint(flow['workspace'], self.store), 'checks': results}
         passed = results and all(item['exit_code'] == 0 for item in results)
-        self._finish_attempt(attempt_id, Result(report={'verified': bool(passed)}))
+        self._finish_attempt(attempt_id, Result(report={'verified': bool(passed)}), {
+            'fingerprint_before': before, 'fingerprint_after': evidence['fingerprint_after'],
+            'checks': [{'command': item['command'], 'exit_code': item['exit_code']} for item in results]})
         if self._cancelled(flow['id'], generation):
             return
         if evidence['fingerprint_after'] != before:

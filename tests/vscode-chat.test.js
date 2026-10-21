@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const {EventEmitter} = require('node:events');
 const {PassThrough} = require('node:stream');
-const {createHandler} = require('../integrations/vscode-chat/handler');
+const {createHandler, summary} = require('../integrations/vscode-chat/handler');
 const {Transport} = require('../integrations/vscode-chat/transport');
 
 const project = {id: 'demo', name: 'Demo', path: path.resolve('synthetic-project')};
@@ -25,6 +25,13 @@ function fake(responses) {
 const state = {id: 'f1', project_id: 'demo', status: 'completed', phase: 'review', calls: 3, max_calls: 6, daemon: 'running'};
 function stream() { return {lines: [], markdown(line) { this.lines.push(line); }}; }
 
+test('progress distinguishes the active worker from the elected leader', () => {
+  const line = summary({...state, status: 'running', phase: 'implement', leader: 'copilot',
+    current_agent: {provider: 'codex', role: 'implement'}});
+  assert.match(line, /leader copilot/);
+  assert.match(line, /implement: codex/);
+});
+
 test('agents uses stdio tools without touching quota-exhausted host model', async () => {
   const client = fake({list_agents: [{agent: 'codex', state: 'READY', authentication: 'UNKNOWN'}]});
   const out = stream();
@@ -44,6 +51,28 @@ test('prompt dispatches once, retains Hub budget and streams final state', async
   assert.equal(dispatch.args.max_calls, undefined);
   assert.match(dispatch.args.request_key, /^[0-9a-f-]{36}$/);
   assert.equal(result.metadata.workflowId, 'f1');
+});
+
+test('daemon startup race keeps watching until the final answer without redispatch', async () => {
+  let polls = 0;
+  const client = fake({projects_list: [project], recover_context: {workflows: []}, dispatch_task: state,
+    get_workflow_status: () => ++polls === 1 ? {...state, status: 'queued', daemon: 'stopped'} : state});
+  const out = stream();
+  await createHandler(api(), async () => client, async () => {})(request(undefined, 'Synthetic task'), {}, out, {});
+  assert.equal(polls, 2);
+  assert.match(out.lines.join(''), /completed/);
+  assert.equal(client.calls.filter(c => c.name === 'dispatch_task').length, 1);
+});
+
+test('stopped daemon grace is bounded and disabled providers show OFF', async () => {
+  const stopped = fake({projects_list: [project], recover_context: {workflows: [state]},
+    get_workflow_status: {...state, status: 'queued', daemon: 'stopped'}});
+  await createHandler(api(), async () => stopped, async () => {})(request('watch'), {}, stream(), {});
+  assert.equal(stopped.calls.filter(c => c.name === 'get_workflow_status').length, 6);
+  const client = fake({list_agents: [{agent: 'claude', enabled: false, state: 'INSTALLED'}]});
+  const out = stream();
+  await createHandler(api(), async () => client)(request('agents'), {}, out, {});
+  assert.match(out.lines.join(''), /OFF/);
 });
 
 test('active workflow prevents duplicate prompt dispatch', async () => {
@@ -122,6 +151,20 @@ test('blocked budget renders persisted answer, review and file without new dispa
   assert.match(text, /FEATURES/);
   assert.ok(!text.includes('private.txt'));
   assert.ok(!client.calls.some(c => ['dispatch_task','workflow_retry'].includes(c.name)));
+});
+
+test('completed output distinguishes final verification from historical worker errors', async () => {
+  const completed = {...state, summary: 'Implementation accepted after independent checks',
+    reports: [{summary: 'Worker Python unavailable', findings: ['Worker could not run tests']}],
+    reviews: [{provider: 'copilot', verdict: 'approve'}], checks: [{exit_code: 0}]};
+  const client = fake({projects_list: [project], recover_context: {workflows: [completed]}, get_workflow_status: completed});
+  const out = stream();
+  await createHandler(api(), async () => client)(request('status'), {}, out, {});
+  const text = out.lines.join('');
+  assert.match(text, /Kết luận sau kiểm tra/);
+  assert.match(text, /Ghi chú worker trước verifier/);
+  assert.match(text, /Verifier: PASS/);
+  assert.match(text, /Review copilot: approve/);
 });
 
 test('Copilot agent availability is labelled CLI, independent of Chat', async () => {

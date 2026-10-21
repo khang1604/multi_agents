@@ -112,6 +112,9 @@ def parser():
     accept.add_argument('workflow_id', nargs='?')
     auto = sub.add_parser('auto-accept', help='Choose whether completed changes are applied automatically')
     auto.add_argument('value', choices=['on', 'off', 'status'])
+    handoff = sub.add_parser('handoff', help='Read the saved handoff or explicitly allow one rejected next approach')
+    handoff.add_argument('workflow_id', nargs='?')
+    handoff.add_argument('--allow-approach'); handoff.add_argument('--reason')
     status = sub.add_parser('status'); status.add_argument('workflow_id', nargs='?'); status.add_argument('--watch', action='store_true'); status.add_argument('--json', action='store_true')
     for name in ('logs', 'diff', 'cancel', 'retry'):
         ap = sub.add_parser(name); ap.add_argument('workflow_id', nargs='?')
@@ -309,6 +312,21 @@ def main(argv=None):
     elif command == 'auto-accept':
         from .acceptance import mode
         show(mode(hub.store, current_project(hub), None if args.value == 'status' else args.value == 'on'))
+    elif command == 'handoff':
+        row = hub.store.workflow(latest(hub, args.workflow_id))
+        if args.allow_approach:
+            from .handoff import allow_approach
+            message = allow_approach(hub.store, row['id'], args.allow_approach, args.reason)
+            print(json.dumps({'message': message}, ensure_ascii=False) if args.json else message)
+        else:
+            saved = json.loads(row['handoff']).get('checkpoint', {})
+            if args.json:
+                show(saved)
+            else:
+                def short(value, limit=180):
+                    return ''.join(char if char.isprintable() else ' ' for char in value)[:limit]
+                rejected = [x['approach_id'] + ': ' + x['reason'] for x in saved.get('attempts', []) if x['status'] == 'rejected']
+                print('Handoff v2 | revision ' + str(saved.get('revision', 0)) + '\nNext: ' + short(saved.get('next_action', {}).get('action', 'Not recorded')) + '\nRejected (' + str(len(rejected)) + '): ' + short('; '.join(rejected) or 'None recorded'))
     elif command == 'logs':
         show(hub.store.all('SELECT provider,phase,status,artifact,error,usage FROM attempts WHERE workflow_id=? ORDER BY created',
                            (latest(hub, args.workflow_id),)))

@@ -11,6 +11,7 @@ function plain(stream, value) {
 }
 function summary(state) {
   let line = `${state.id}: ${state.status}/${state.phase} · leader ${state.leader || '?'} · ${state.calls}/${state.max_calls} calls`;
+  if (state.current_agent) line += ` · ${clean(state.current_agent.role, 30)}: ${clean(state.current_agent.provider, 40)}`;
   if (state.next_run && state.status === 'waiting') line += ` · thử lại ${new Date(state.next_run * 1000).toLocaleString()}`;
   if (state.error) line += ` · ${clean(state.error)}`;
   if (state.status === 'completed') line += state.acceptance?.status === 'accepted' ? ' · Đã áp dụng vào file' : ' · Chờ Accept: /accept';
@@ -19,15 +20,17 @@ function summary(state) {
 function outcome(stream, state) {
   if (!terminal.has(state.status)) return;
   plain(stream, state.status === 'completed' ? 'Kết quả:' : 'Kết quả tạm đã lưu; workflow chưa hoàn tất:');
+  if (state.status === 'completed' && state.summary) plain(stream, 'Kết luận sau kiểm tra/review: ' + state.summary);
   const seen = new Set();
   for (const report of (state.reports || []).slice(0, 2)) {
-    if (report.summary) plain(stream, report.summary);
+    if (report.summary) plain(stream, (state.status === 'completed' ? 'Worker báo cáo trước verifier: ' : '') + report.summary);
     for (const finding of (report.findings || []).slice(0, 5)) {
-      if (!seen.has(finding)) { plain(stream, '• ' + finding); seen.add(finding); }
+      if (!seen.has(finding)) { plain(stream, (state.status === 'completed' ? 'Ghi chú worker trước verifier: ' : '• ') + finding); seen.add(finding); }
     }
   }
   if (!(state.reports || []).length) plain(stream, state.summary || 'Chưa có báo cáo thực hiện.');
   for (const review of (state.reviews || []).slice(0, 2)) {
+    if (review.verdict === 'approve') plain(stream, `Review ${review.provider || ''}: approve.`);
     if (review.verdict === 'changes_requested') {
       for (const finding of (review.findings || []).slice(0, 3)) plain(stream, 'Cần sửa: ' + finding);
     }
@@ -66,7 +69,7 @@ function createHandler(api, connect, wait = ms => new Promise(resolve => setTime
       client = await connect();
       if (request.command === 'agents') {
         const rows = await client.call('list_agents');
-        for (const row of rows) plain(stream, `${row.agent} CLI: ${row.state} · ${row.agent === 'copilot' && row.state === 'NOT_INSTALLED' ? 'Chưa cài CLI; Copilot Chat vẫn dùng được' : (row.reason || (row.operator_confirmed ? 'Bạn xác nhận chạy AI' : row.authentication))}`);
+        for (const row of rows) plain(stream, `${row.agent} CLI: ${row.state} · ${row.enabled === false ? 'OFF · Đã tắt trong cấu hình' : (row.agent === 'copilot' && row.state === 'NOT_INSTALLED' ? 'Chưa cài CLI; Copilot Chat vẫn dùng được' : (row.reason || (row.operator_confirmed ? 'Bạn xác nhận chạy AI' : row.authentication)))}`);
         return {};
       }
       const project = await selectProject(api, client);
@@ -135,7 +138,10 @@ function createHandler(api, connect, wait = ms => new Promise(resolve => setTime
           workflow = await client.call('get_workflow_status', {workflow_id: workflow.id});
           const line = summary(workflow);
           if (line !== previous) { plain(stream, line); previous = line; }
-          if (terminal.has(workflow.status) || workflow.status === 'waiting' || workflow.daemon === 'stopped') break;
+          if (terminal.has(workflow.status) || workflow.status === 'waiting') break;
+          // A newly spawned daemon may not own its lock on the first read.
+          // Allow a bounded startup grace period instead of dropping the answer.
+          if (workflow.daemon === 'stopped' && count >= 5) break;
           await wait(2000);
         }
         if (!terminal.has(workflow.status)) plain(stream, 'Checkpoint đã lưu. Dùng @hub /watch để xem tiếp; /cancel để dừng task.');

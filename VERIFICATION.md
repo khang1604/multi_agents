@@ -1,5 +1,36 @@
 # Kiểm chứng bản demo
 
+## Handoff v2 — Windows, 2026-10-21
+
+`python -m unittest discover -s tests -v`: bộ regression Windows, dùng provider giả.
+Kết quả cuối: **202 cases, 193 passed, 9 POSIX-only skipped**, 145.898s; Node suite
+gồm 17 ca handler/transport (được chạy kèm integration test Python).
+Có 20 ca handoff kiểm tra bàn giao giữa provider, báo cáo CLI giả
+completed/blocked, phục hồi sau crash, kết quả đến muộn, hash source thay đổi,
+context budget, chặn lặp hướng đã loại, quyền thử lại một lần của operator và
+đầu ra ngắn của `ma handoff`. Không gọi model trong bộ test.
+
+Checkpoint và kết quả attempt được lưu cùng giao dịch SQLite có generation fence;
+test pass của agent vẫn chỉ là lời báo cáo cho tới khi Hub có verifier evidence.
+Handoff/report V1 được giữ tương thích. Chi tiết và giới hạn ở
+[docs/HANDOFF.md](docs/HANDOFF.md).
+
+Workflow thật `e4c9d156e369` chạy từ chat VS Code trên repo synthetic: Copilot lập
+kế hoạch, Codex sửa hai file, Hub verifier pass, Copilot review approve. Tổng 5 lượt
+CLI model, gồm một planner blocked và một review blocked; chỉ cấp lượt thứ 5 sau
+xác nhận trực tiếp của operator. Đã tìm/sửa lỗi planner hiểu outcome là cả workflow,
+reviewer mất diff vì context dài, và chat dừng theo dõi khi daemon chưa kịp khởi động.
+Checkpoint phân biệt blocked/rejected và vai trò nhận việc, không tự xóa lịch sử lỗi.
+
+Codex worker gặp alias `python`/`py` lỗi; Context Pack nay đưa đường dẫn interpreter
+đã resolve. Lệnh unittest thật với interpreter đó trong sandbox Codex chính thức:
+**5 tests pass**. Hub verifier độc lập cũng pass; sau Accept có **5 tests pass** trên
+source synthetic. Delivery ZIP được kiểm tra trước khi dọn worktree. Không đổi sandbox.
+
+Chín kiểm thử POSIX chưa chạy vì máy hiện chưa cài WSL. Chưa kiểm chứng Claude/
+Antigravity thật, quota thực hồi lại hoặc mọi chat host khi hết quota. Không suy ra
+các khả năng đó từ Node mocks hoặc từ workflow Copilot/Codex nói trên.
+
 ## Ubuntu — 2026-10-20
 
 Portable setup/launcher update: **175 cases, 168 passed, 7 Windows-only skipped**.

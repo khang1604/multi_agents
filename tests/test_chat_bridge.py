@@ -38,7 +38,7 @@ class ChatBridgeTests(unittest.TestCase):
         calls = []
         def runner(command, **kwargs):
             calls.append(command)
-            output = EXTENSION_ID + '@0.1.2\n' if len(calls) > 2 else ''
+            output = EXTENSION_ID + '@0.1.3\n' if len(calls) > 2 else ''
             return subprocess.CompletedProcess(command, 0, output, '')
         result = install(self.hub.store.home, True, runner=runner, command=sys.executable)
         self.assertIn('installed', result['status'])
@@ -61,7 +61,7 @@ class ChatBridgeTests(unittest.TestCase):
         calls = []
         def runner(command, **kwargs):
             calls.append(command)
-            version = '0.1.0' if len(calls) == 1 else '0.1.2'
+            version = '0.1.0' if len(calls) == 1 else '0.1.3'
             return subprocess.CompletedProcess(command, 0, EXTENSION_ID + '@' + version + '\n', '')
         install(self.hub.store.home, True, runner=runner, command=sys.executable)
         self.assertNotIn('--force', calls[1])

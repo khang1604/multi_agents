@@ -7,7 +7,7 @@ from unittest.mock import patch
 import unittest
 from pathlib import Path
 
-from agenthub.acceptance import accept, mode
+from agenthub.acceptance import accept, mode, preview
 from agenthub.engine import Engine
 from agenthub.simulation import setup_fixture, SimulatedInvoker
 from agenthub.workspace import git
@@ -54,6 +54,53 @@ class AcceptanceTests(unittest.TestCase):
             accept(self.hub.store, flow['id'])
         self.assertEqual(marker.read_text(), 'synthetic user edit')
         self.assertEqual(git(self.source, 'status', '--porcelain'), before)
+
+    def test_accept_one_file_then_remaining_preserves_partial_state(self):
+        flow = self.finish()
+        before = (self.source / 'app/tasks.py').read_bytes()
+        result = accept(self.hub.store, flow['id'], files=['tests/test_filter.py'])
+        self.assertEqual(result['status'], 'partial')
+        self.assertEqual((self.source / 'app/tasks.py').read_bytes(), before)
+        self.assertEqual(result['remaining_files'], ['app/tasks.py'])
+        self.assertEqual(accept(self.hub.store, flow['id'], files=['tests/test_filter.py']), result)
+        result = accept(self.hub.store, flow['id'])
+        self.assertEqual(result['status'], 'accepted')
+        self.assertEqual(len(result['files']), 2)
+
+    def test_partial_accept_does_not_overwrite_user_edit_or_other_files(self):
+        flow = self.finish()
+        accept(self.hub.store, flow['id'], files=['app/tasks.py'])
+        edited = self.source / 'app/tasks.py'
+        edited.write_text('# User synthetic edit after Accept\n')
+        with self.assertRaisesRegex(ValueError, 'Previously accepted'):
+            accept(self.hub.store, flow['id'])
+        self.assertEqual(edited.read_text(), '# User synthetic edit after Accept\n')
+        self.assertFalse((self.source / 'tests/test_filter.py').exists())
+
+    def test_unknown_selected_file_does_not_apply_anything(self):
+        flow = self.finish()
+        before = git(self.source, 'status', '--porcelain')
+        with self.assertRaisesRegex(ValueError, 'not part'):
+            accept(self.hub.store, flow['id'], files=['../outside.py'])
+        self.assertEqual(git(self.source, 'status', '--porcelain'), before)
+
+    def test_preview_uses_baseline_and_sealed_delivery_not_current_user_source(self):
+        flow = self.finish()
+        original = (self.source / 'app/tasks.py').read_text()
+        (self.source / 'app/tasks.py').write_text('User synthetic edits must not enter the preview')
+        value = preview(self.hub.store, flow['id'])
+        file = next(f for f in value['files'] if f['path'] == 'app/tasks.py')
+        self.assertEqual(file['before'].replace('\r\n', '\n'), original.replace('\r\n', '\n'))
+        self.assertIn('query', file['after'])
+        self.assertNotIn('User synthetic edits', file['before'] + file['after'])
+        self.assertEqual((self.source / 'app/tasks.py').read_text(), 'User synthetic edits must not enter the preview')
+
+    def test_preview_tracks_individually_accepted_files(self):
+        flow = self.finish()
+        accept(self.hub.store, flow['id'], files=['app/tasks.py'])
+        files = {f['path']: f for f in preview(self.hub.store, flow['id'])['files']}
+        self.assertTrue(files['app/tasks.py']['accepted'])
+        self.assertFalse(files['tests/test_filter.py']['accepted'])
 
     def test_auto_accept_is_project_opt_in(self):
         mode(self.hub.store, self.project['id'], True)

@@ -42,24 +42,36 @@ cd multi_agents
 ```
 
 If PowerShell blocks scripts, use `py -3 ma.py setup`; do not bypass ExecutionPolicy.
-The wizard checks prerequisites, lists CLI discoveries, selects agents (Space/Enter
-with arrows or j/k on an interactive Windows terminal), model policy and roles. A
-basic input fallback works without advanced TUI support. Keep selection unchanged
-by keeping current values; deselecting every agent is valid but cannot code a task.
+Default setup opens one terminal selection screen for providers and optional integrations.
+Select the CLI tools you want, the `ma` launcher, VS Code @hub/MCP and, on Windows,
+queue wake checks. Only selected actions are applied. Selected providers share INHERIT
+(their CLI default model); roles and security choices are preserved. Setup probes
+version/auth without model calls and offers official interactive login for selected
+providers when needed. UNKNOWN is unverified; a login process exiting successfully
+is not proof of authentication or quota. Provider CLIs must be installed separately.
 
-Choose the model policy once for all selected agents. Native AUTO capability is still
-checked separately; one explicit fallback approval covers selected agents without
-native AUTO. Roles are kept automatically. Per-agent model/role questions appear only
-after opting into Advanced customization. Invalid role input is corrected in place;
-press Enter (do not type the help text) to keep current roles. MANUAL applies one
-model ID only when every selected provider advertises it; otherwise use INHERIT or
-Advanced settings to choose different provider-specific models.
+After installing/updating the owned VS Code @hub extension, open the graphical setup:
 
-The wizard asks separately before installing the owned `ma` launcher or changing a
-client configuration. It never installs/logs into providers, changes security
-attestations, starts a paid task or enables autostart. Failures restore prior Hub
-configuration and attempt to undo newly owned launcher/client entries. Backups remain;
-any rollback needing manual review is stated. A changed user-owned entry is preserved.
+```text
+ma setup interface
+```
+
+Requires the official `code` command on PATH and the matching Hub extension in the
+default VS Code profile. The command sends a fixed setup deep link; it does not apply
+settings, select providers, log in or start a workflow. In the interface, select
+options and click **Áp dụng**. If it does not appear, reload VS Code or use
+`Ctrl+Shift+P` → **Multi Agents: Setup nhanh**. First-time users without the extension
+must run `ma setup` and select **Kết nối VS Code @hub** first. `ma setup` by itself
+continues to use the terminal; it does not launch the graphical interface.
+
+For detailed per-provider model/role configuration use `ma setup --advanced`.
+That wizard supports shared AUTO/MANUAL policies and explicit INHERIT fallback;
+provider-specific capabilities still apply. Press Enter to keep a current value.
+
+Applying setup keeps backups and ownership checks. Failures restore Hub configuration
+and attempt to remove newly owned integration entries; retained backups allow review.
+Existing user-owned changes are preserved. Setup never self-confirms security scope,
+starts a paid task or installs optional integrations that were not selected.
 
 After installing the user PATH entry, open a new terminal. `ma --help` works anywhere;
 `ma` opens the terminal menu. The launcher pins the chosen interpreter and home.

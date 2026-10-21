@@ -1,59 +1,33 @@
 # Multi Agents
 
-Dùng nhiều công cụ AI để cùng làm một dự án, đỡ phải tự chuyển việc qua lại.
-Bạn cài một lần, mở dự án cần làm rồi nhập yêu cầu. Multi Agents giúp giao việc,
-nhớ tiến độ, kiểm tra kết quả và đổi sang công cụ khác khi có thể.
+**English** | [Tiếng Việt](README.vi.md)
 
-Hỗ trợ **Codex, Claude Code, Copilot CLI và Antigravity CLI**. Không cần cài đủ cả bốn.
-Codex và Claude có thể sửa code; cả bốn đều có thể lập kế hoạch hoặc xem lại thay đổi.
-CLI là bản chạy bằng dòng lệnh; có ứng dụng hay extension chưa chắc đã có CLI.
+Coordinate Codex, Claude Code, Copilot CLI and Antigravity CLI for planning,
+implementation, testing and review. Install only the tools you need; Codex/Claude
+handle code changes. The core uses the Python standard library and Git.
 
-**Dự án vẫn đang hoàn thiện.** Một số luồng đã chạy bằng AI thật, nhưng chưa kiểm
-đầy đủ trên mọi máy và mọi ứng dụng chat. Đặc biệt, chưa thể hứa rằng chat hết quota
-thì vẫn gửi được yêu cầu mới. [Xem phần đã thử và còn thiếu](VERIFICATION.md).
+## Features
 
-## Dự án giúp được gì?
-
-| Bạn muốn… | Multi Agents giúp thế nào? |
+| Feature | Behavior |
 |---|---|
-| Dùng những AI mình đang có | Tìm CLI đã cài và cho bạn chọn công cụ muốn dùng. Không bắt cài đủ bốn. |
-| Bớt tự chuyển việc giữa các AI | Giao phần lập kế hoạch, viết code và xem lại kết quả cho công cụ phù hợp. |
-| AI lỗi thì có công cụ khác làm tiếp | Lưu tiến độ rồi thử công cụ khác còn dùng được. Nếu không còn công cụ phù hợp, sẽ chờ hoặc báo cần bạn xử lý. |
-| Đóng chat rồi quay lại không phải giải thích từ đầu | Lưu việc đang làm, quyết định đã có và lỗi còn lại trên máy. |
-| Đỡ tốn quota cho việc nhỏ | Việc đơn giản dùng ít bước hơn; việc khó có thêm bước kiểm tra. Không tự tăng số lượt đã cho phép. |
-| Không để AI nào cũng đọc lại cả dự án | Bàn giao mục tiêu, cách đã thử/lý do thất bại và bước tiếp theo; giữ hash và kết quả test riêng. [Chi tiết](docs/HANDOFF.md). |
-| Biết code làm ra có chạy không | Chạy lệnh kiểm tra của dự án, lưu kết quả rồi cho AI xem lại khi cần. Test pass vẫn chưa chứng minh mọi tính năng đều đúng. |
-| Chấp nhận code theo cách mình muốn | Agent viết vào file trong bản làm việc riêng. Khi xong, bạn xem rồi Accept để áp dụng vào file dự án đang mở; có thể bật Auto accept riêng cho dự án. |
-| Không để file tạm phình mãi | Kiểm gói kết quả trước khi dọn bản làm việc tạm; việc đang chạy hoặc đang chờ được giữ lại. |
-| Hết quota thì làm tiếp sau | Lưu chỗ đang dở và giờ thử lại. Máy và Hub cần hoạt động để tiếp tục; không tự mua thêm lượt. |
+| Roles and task sizing | Route work to suitable tools with a bounded number of CLI calls. |
+| Leader failover and quota waits | Save checkpoints, switch to eligible tools or wait for the next retry; never raise budgets automatically. |
+| Shared context and Handoff v2 | Transfer intent, attempted approaches, rejection reasons, constraints and next actions, with hashes and test evidence. |
+| Durable state | SQLite stores local workflows, memory, checkpoints and provider state. |
+| Worktrees and verification | Work in an isolated checkout, run project checks and review the result. |
+| Review and accept | Native VS Code diff, accept all or individual files; integrity-checked ZIPs remain available for recovery. |
+| Chat and MCP | Submit tasks through Copilot Chat `@hub` or Hub MCP tools in a connected client. |
+| Quick setup | One selection screen for CLIs/integrations, shared INHERIT policy, auth checks and optional official login. |
 
-Giới hạn lượt hiện tính theo **số lần chạy CLI**, chưa phải số token hoặc tiền chính xác.
-Một lượt CLI có thể gọi model nhiều lần bên trong.
+## Get started: setup → init → prompt
 
-## Cần chuẩn bị gì?
+Requires **Git, Python >= 3.11** and at least Codex CLI or Claude Code CLI for code changes.
+Install the AI CLIs separately; an IDE extension does not imply its CLI is installed.
+Use only authorized source, synthetic data and approved test APIs.
 
-- Git và **Python 3.11 trở lên**.
-- Ít nhất Codex CLI hoặc Claude Code CLI nếu muốn AI sửa code.
-- Tự đăng nhập những CLI muốn dùng bằng cách chính thức của từng công cụ.
-- Dự án có Git, đã commit phần muốn dùng và có lệnh kiểm tra chạy được.
-- Chỉ dùng code được phép, dữ liệu giả và API test đã được cho phép.
+### 1. Set up once
 
-Multi Agents dùng thư viện có sẵn của Python, không cần `pip install` cho phần chính.
-Các CLI AI và thư viện của dự án bạn làm vẫn cần cài riêng.
-
-## Bắt đầu theo 3 bước
-
-### 1. Cài một lần tại thư mục Multi Agents
-
-**Ubuntu:**
-
-```bash
-mkdir -p ~/Project
-cd ~/Project
-git clone https://github.com/khang1604/multi_agents.git
-cd multi_agents
-./setup.sh
-```
+Clone into a new directory, then run setup from the Multi Agents directory:
 
 **Windows — PowerShell:**
 
@@ -63,129 +37,116 @@ cd multi_agents
 .\setup.ps1
 ```
 
-Nếu đã có folder cùng tên, dùng folder trống khác; đừng xóa thay đổi đang có để cài lại.
-Có thể chạy `python3 ma.py setup` trên Ubuntu hoặc `py -3 ma.py setup` trên Windows
-nếu máy không chạy được file setup. Không cần tắt chính sách bảo mật của máy.
-
-Làm theo hướng dẫn để chọn AI, cài lệnh `ma` và kết nối ứng dụng chat muốn dùng.
-Bạn có thể giữ lựa chọn model mặc định của từng AI bằng **INHERIT**.
-Setup có chỗ mở đăng nhập chính thức; công cụ chưa xác minh được sẽ ghi **UNKNOWN**,
-không tự nhận là đã đăng nhập hay còn quota.
-
-Trên Ubuntu, nếu chọn cài `ma`, chạy lệnh `export PATH=...` mà setup in ra.
-Nó giúp terminal tìm thấy lệnh vừa cài. Dự án không tự sửa `.bashrc` hoặc `.profile`;
-terminal mới cần PATH đã được bạn cấu hình, hoặc dùng đường dẫn đầy đủ của lệnh `ma`.
-Trên Windows, mở terminal mới sau khi cài. Nếu có yêu cầu, mở lại ứng dụng chat.
-
-### 2. Mở thư mục dự án cần làm rồi chạy init
+**Ubuntu:**
 
 ```bash
-cd /duong/dan/du-an-cua-ban
+git clone https://github.com/khang1604/multi_agents.git
+cd multi_agents
+./setup.sh
+```
+
+Setup opens a **selection screen in the terminal**; it does not automatically open VS Code.
+Select CLIs and optional integrations: the `ma` command, VS Code `@hub`, VS Code MCP,
+and, on Windows, automatic queue wake checks. Only selected actions are applied.
+INHERIT uses each CLI's default model. Setup keeps configuration backups.
+Auth checks do not call models; `UNKNOWN` means unverified, not necessarily logged out.
+Use the optional official login flow inside setup when needed; never paste tokens into chat.
+
+After installing/updating the Hub extension, run this from any directory to open
+**Quick Setup in VS Code**:
+
+```text
+ma setup interface
+```
+
+This sends an open request without applying settings. Requires `code` on PATH and
+the Hub extension installed by the same Hub source/home in the default VS Code profile.
+If the extension is missing, run `ma setup` and select **Kết nối VS Code @hub** first.
+If the interface does not appear, reload VS Code and retry, or use the Command Palette:
+
+
+1. Press `Ctrl+Shift+P` → **Multi Agents: Setup nhanh**.
+2. Select CLIs/integrations, log in if needed and check status again.
+3. Click **Áp dụng** (Apply) once. For individual model/role settings, use `ma setup --advanced`.
+
+Open a new terminal on Windows after installing the command. On Ubuntu, add the launcher
+directory to PATH using the command printed by setup; setup does not edit shell profiles.
+Reload VS Code if prompted. If the script cannot run, use `py -3 ma.py setup` (Windows)
+or `python3 ma.py setup` (Ubuntu).
+
+### 2. Initialize your project
+
+Open a Git repository with a commit and a working verification command, then run:
+
+```text
 ma init
 ```
 
-Không cần chép Multi Agents vào từng dự án. Cài ở một nơi rồi dùng cho nhiều dự án.
+Confirm the source/data scope when prompted. Init prepares the project and checks
+verification and connections; resolve reported errors before submitting work.
+You do not need a separate copy of Hub in each project.
 
-### 3. Nhập yêu cầu trong chat như bình thường
+### 3. Write a prompt in chat
 
-Ví dụ:
+In Copilot Chat with Hub installed:
 
 ```text
-Thêm chức năng lọc công việc theo trạng thái và từ khóa. Giữ cách gọi cũ và bổ sung test.
+@hub Add task filtering by status and keyword. Preserve existing calls, add tests and review the changes.
 ```
 
-Ứng dụng chat cần được kết nối với Multi Agents ở bước setup. Trong Copilot Chat,
-chọn `@hub` một lần rồi tiếp tục nhập nội dung trong cuộc chat đó.
-Với chat dùng MCP, ứng dụng cần nhận đúng công cụ của Hub sau khi refresh.
+Hub returns a workflow ID and progress. Once complete, choose **Xem thay đổi** (Review changes),
+then **Accept tất cả** (Accept all) or **Accept từng file** (Accept individual files).
+Acceptance applies files without committing or pushing. Other chat clients need Hub MCP tools.
+A workflow ID confirms the request reached Hub.
 
-**Chỉ khi có mã công việc của Hub mới biết yêu cầu đã được giao.**
-Nếu AI trong chat tự viết code mà không gọi Hub, đó chưa phải luồng Multi Agents.
-Bạn không cần tự chạy `ma run` cho từng việc; lệnh này vẫn có nếu muốn dùng terminal.
+## Common commands
 
-## Khi chat hoặc AI hết quota thì sao?
+Run in your project directory, except setup/demo. `ID` means workflow ID.
 
-- **Việc đã giao cho Hub:** có thể tiếp tục bằng CLI khác còn dùng được.
-- **CLI đang làm hết quota:** Hub lưu tiến độ, tìm công cụ thay thế hoặc chờ thử lại.
-- **Chat chặn yêu cầu mới:** MCP không tự đọc được câu bạn nhập, nên yêu cầu có thể
-  chưa tới Hub. Hiện chưa bảo đảm khắc phục được việc này trên mọi giao diện.
+| Command | Purpose |
+|---|---|
+| `ma setup` | Terminal setup screen; does not launch the VS Code interface. |
+| `ma setup interface` | Open VS Code Quick Setup; select options and click Apply. |
+| `ma setup --advanced` | Configure individual providers, models and roles. |
+| `ma init` | Prepare or recheck the current project. |
+| `ma agents list --check` | Detect CLIs and report status with short reasons; no model calls. |
+| `ma status --watch` / `ma logs` | Follow progress / inspect attempts and errors. |
+| `ma handoff ID` | Read the saved handoff and next action. |
+| `ma review ID` / `ma diff ID` | List delivery files / inspect the diff. |
+| `ma accept ID` | Apply the entire completed result. |
+| `ma accept ID --file app/tasks.py` | Accept one file; repeat `--file` to select more. |
+| `ma auto-accept on` / `off` / `status` | Control automatic acceptance for this project; off by default. |
+| `ma retry ID` / `ma cancel ID` | Resume within the remaining budget / stop and keep checkpoints. |
+| `ma run "Your request"` | Submit work through the terminal if preferred. |
+| `ma doctor` / `ma --help` | Diagnose problems / read command help. |
 
-`@hub` được viết để không gọi model của chat trong phần xử lý, nhưng vẫn phải kiểm
-tra xem ứng dụng có cho phần đó chạy khi hết quota hay không. Chưa thử được thì
-không coi là đã hoạt động.
+Copilot Chat supports `@hub /agents`, `/status`, `/watch`, `/retry`, `/cancel`,
+`/accept [ID]` and `/autoaccept on|off|status`. Add an ID to workflow commands to select
+a specific task; otherwise Hub uses the latest task for the project.
+Stopping the progress view does not cancel the workflow.
 
-## Muốn xem thử trước khi dùng AI thật?
-
-Tại thư mục Multi Agents, chạy:
+Try without AI from the Multi Agents directory:
 
 ```bash
 python3 ma.py demo --simulate
 ```
 
-Windows dùng `py -3` thay cho `python3`.
-Demo này giả lập câu trả lời của AI, nhưng vẫn dùng Git, lưu tiến độ và chạy test thật.
-**Không gọi model, không tốn quota.** Nó không chứng minh tài khoản AI đã dùng được.
+On Windows, replace `python3` with `py -3`. Providers are simulated; Git and tests still run.
 
-## Những lệnh hay dùng
+## Status and contributions
 
-| Lệnh | Dùng khi nào? |
-|---|---|
-| `ma setup` | Muốn đổi lựa chọn AI hoặc kết nối lại ứng dụng chat. |
-| `ma init` | Bắt đầu với một dự án, hoặc kiểm tra lại sau khi sửa môi trường. |
-| `ma agents list --check` | Xem CLI nào có trên máy và thông tin đăng nhập kiểm tra được. |
-| `ma status --watch` | Xem công việc đang đến đâu mà không hỏi AI liên tục. |
-| `ma logs` | Xem lượt nào đã chạy hoặc gặp lỗi. |
-| `ma handoff ID` | Xem bước tiếp theo và lý do loại các hướng đã thử; `--json` để xem đầy đủ. |
-| `ma diff` | Xem phần code thay đổi trước khi Accept. |
-| `ma accept ID` | Chấp nhận và áp dụng code đã hoàn tất vào file dự án; lệnh này chính là xác nhận của bạn. |
-| `ma auto-accept on` / `off` / `status` | Bật, tắt hoặc xem chế độ tự áp dụng cho dự án trong thư mục hiện tại. |
-| `ma retry ID` | Tiếp tục công việc sau khi xử lý lỗi; không tự cấp thêm lượt. |
-| `ma doctor` | Tìm nguyên nhân khi setup hoặc init báo lỗi. |
-| `ma --help` | Xem các lệnh còn lại. |
+Work in progress: smooth operation on every machine or chat client is not guaranteed.
+A host chat quota limit may block a prompt before it reaches Hub; MCP cannot bypass that limit.
+Tasks already submitted can switch to another available CLI. Budgets count CLI invocations,
+not exact tokens or cost. Windows and Ubuntu have separate verification evidence.
 
-### Lệnh `@hub` trong Copilot Chat
+See [verification results](VERIFICATION.md), [fixed issues and contribution tasks](docs/KNOWN_ISSUES.md),
+[contributing](CONTRIBUTING.md), [Handoff v2](docs/HANDOFF.md) and the [detailed guide](docs/V2_GUIDE.md).
+Read [global rules](GLOBAL_RULES.md) and [security](docs/SECURITY.md) before real runs:
+no real user data/secrets, preserve CLI sandboxes, and use OS isolation when requested by the user.
+Supporting technical documents currently include Vietnamese content.
 
-| Lệnh | Dùng khi nào? |
-|---|---|
-| `@hub <yêu cầu>` | Trong Copilot Chat đã cài Hub, nhập ví dụ `@hub Thêm bộ lọc công việc`. Hub nhận việc cho dự án đang mở và trả mã công việc để theo dõi. Nếu đã có việc đang chạy, yêu cầu mới chưa được gửi; bạn cần theo dõi hoặc dừng việc cũ trước. Chat khác có thể kết nối qua MCP. |
-| `@hub /agents` | Liệt kê CLI mà Hub nhận diện và thông tin trạng thái đã biết. Lệnh này không gọi model; trạng thái có thể chưa đủ để khẳng định tài khoản còn quota. |
-| `@hub /status` | Hiện trạng thái, bước đang làm, AI phụ trách, số lượt đã dùng và lỗi nếu có. Chỉ xem một lần, không tạo việc mới. |
-| `@hub /watch` | Cập nhật tiến độ của việc đã giao trong tối đa khoảng 10 phút mỗi lần xem. Đóng hoặc dừng phần theo dõi không hủy việc đang chạy. |
-| `@hub /retry` | Yêu cầu tiếp tục việc sau khi bạn xử lý nguyên nhân bị chặn. Giữ nguyên giới hạn lượt AI; không cấp thêm quota và không bảo đảm lỗi đã hết. |
-| `@hub /cancel` | Gửi yêu cầu dừng, giữ lại code và tiến độ đã lưu để xem hoặc tiếp tục sau. Không xóa thay đổi đã có. |
-| `@hub /accept [ID]` | Sau khi xem code và kết quả kiểm tra, chọn Accept trong hộp xác nhận để ghi thay đổi vào file dự án. Không tự commit hoặc push. |
-| `@hub /autoaccept on` | Bật tự áp dụng kết quả cho dự án đang mở sau khi xác nhận. Nếu file gốc đã thay đổi, Hub dừng áp dụng để tránh ghi đè. |
-| `@hub /autoaccept off` | Tắt tự áp dụng; các kết quả tiếp theo chờ bạn Accept. |
-| `@hub /autoaccept status` | Xem dự án đang bật hay tắt Auto accept. Mặc định tắt. |
-
-Với `/status`, `/watch`,
-`/retry`, `/cancel` và `/accept`, nếu không nhập mã thì Hub chọn công việc gần nhất của dự án
-đang mở. Muốn chọn việc cụ thể, thêm mã phía sau, ví dụ `@hub /status abc123`.
-Mã phải thuộc dự án đang mở. Accept áp dụng kết quả của cả công việc.
-Auto accept của Hub không thay đổi quyền sửa file hay sandbox riêng của từng CLI.
-Các lệnh này không gọi model để hỏi tiến độ;
-`/retry` có thể khiến Hub tiếp tục gọi CLI AI trong giới hạn lượt còn lại.
-
-## Dữ liệu và quyền truy cập
-
-Không dùng dữ liệu khách hàng thật, database thật, `.env`, token hoặc khóa bí mật
-làm đầu vào cho agent. Tên folder có chữ `test` không có nghĩa dữ liệu bên trong là giả.
-
-Quy tắc bằng chữ không thay thế quyền truy cập của hệ điều hành. Nếu cần ngăn truy
-cập ngoài dự án, phải chuẩn bị môi trường cách ly phù hợp. Agent không được tự xác
-nhận điều kiện này hoặc nới quyền để chạy cho xong.
-
-Đọc [GLOBAL_RULES.md](GLOBAL_RULES.md) và [hướng dẫn bảo mật](docs/SECURITY.md) trước
-khi giao việc thật. Đăng nhập nằm ở CLI chính thức; không chia sẻ token với Hub hay chat.
-
-## Đọc thêm
-
-- [Hướng dẫn Ubuntu và cách quay demo](docs/UBUNTU_DEMO.md).
-- [Cấu hình mẫu cho đủ bốn CLI](examples/config/providers.example.json) — không có tài khoản hay đường dẫn máy cá nhân.
-- [Những gì đã chạy thử](VERIFICATION.md) và [phần còn cần làm](docs/KNOWN_ISSUES.md).
-- [Hướng dẫn chi tiết hơn](docs/V2_GUIDE.md), gồm lệnh test riêng và hẹn làm tiếp.
-- [Góp phần phát triển](CONTRIBUTING.md).
-
-Ý tưởng tham khảo từ [Maestro](https://github.com/RunMaestro/Maestro),
+Built from the author's ideas, with inspiration from [Maestro](https://github.com/RunMaestro/Maestro),
 [agent-intern](https://github.com/SinanTufekci/agent-intern),
-[Agent Deck](https://github.com/asheshgoplani/agent-deck) và
+[Agent Deck](https://github.com/asheshgoplani/agent-deck) and
 [AI Maestro](https://github.com/23blocks-OS/ai-maestro).

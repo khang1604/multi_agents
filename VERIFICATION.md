@@ -1,5 +1,20 @@
 # Kiểm chứng bản demo
 
+## Quick setup, native review và lệnh mở giao diện — Windows, 2026-10-21
+
+`python -m unittest discover -s tests -v`: **216 cases, 207 passed, 9 POSIX-only
+skipped**, 144.319s. Provider được mô phỏng, không gọi model. Node handler/transport
+suite gồm 22 ca; ca stdio thật chạy trong bộ integration Python. Chạy riêng Node:
+21 passed, 1 stdio case skipped vì không đặt fixture home.
+
+`ma setup interface` gửi deep link cố định tới extension Hub trong VS Code; không
+áp dụng cấu hình. Kiểm thử giả lập bao phủ thiếu CLI/extension, version/ownership
+không khớp, CLI mở cửa sổ lỗi và URI không được phép. `onUri` chỉ mở Setup nhanh,
+không nhận tham số apply/login. Chưa kiểm chứng mở cửa sổ thật qua lệnh mới này;
+không suy ra kết quả UI từ subprocess/API mocks. Giao diện Setup nhanh đã được
+mở và Apply trên home synthetic ở bước kiểm tra trước, không thay security.
+
+
 ## Handoff v2 — Windows, 2026-10-21
 
 `python -m unittest discover -s tests -v`: bộ regression Windows, dùng provider giả.

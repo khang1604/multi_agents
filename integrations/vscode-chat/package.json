@@ -2,7 +2,7 @@
   "name": "multi-agents-chat",
   "displayName": "Multi Agents Hub Chat",
   "description": "Send @hub prompts directly to your local Multi Agents orchestrator.",
-  "version": "0.1.3",
+  "version": "0.1.6",
   "publisher": "khang1604",
   "engines": {
     "vscode": "^1.93.0"
@@ -22,6 +22,7 @@
     "virtualWorkspaces": false
   },
   "activationEvents": [
+    "onUri",
     "onChatParticipant:multi-agents.hub"
   ],
   "contributes": {
@@ -63,6 +64,40 @@
           }
         ]
       }
-    ]
+    ],
+    "commands": [
+      {
+        "command": "multi-agents.review",
+        "title": "Multi Agents: Xem thay đổi"
+      },
+      {
+        "command": "multi-agents.acceptAll",
+        "title": "Multi Agents: Accept tất cả"
+      },
+      {
+        "command": "multi-agents.acceptFile",
+        "title": "Multi Agents: Accept từng file"
+      },
+      {
+        "command": "multi-agents.setup",
+        "title": "Multi Agents: Setup nhanh"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "multi-agents.review",
+          "when": "false"
+        },
+        {
+          "command": "multi-agents.acceptAll",
+          "when": "false"
+        },
+        {
+          "command": "multi-agents.acceptFile",
+          "when": "false"
+        }
+      ]
+    }
   }
 }

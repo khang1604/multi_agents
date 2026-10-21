@@ -6,8 +6,23 @@ const {EventEmitter} = require('node:events');
 const {PassThrough} = require('node:stream');
 const {createHandler, summary} = require('../integrations/vscode-chat/handler');
 const {Transport} = require('../integrations/vscode-chat/transport');
+const {registerReview} = require('../integrations/vscode-chat/review');
+const {registerSetup, registerSetupUri, setupHtml} = require('../integrations/vscode-chat/setup');
 
 const project = {id: 'demo', name: 'Demo', path: path.resolve('synthetic-project')};
+test('setup deep link opens only the interface, without accepting options or commands', async () => {
+  let handler;
+  const calls = [];
+  registerSetupUri({env: {uriScheme: 'vscode'}, window: {registerUriHandler(value) { handler = value; return {}; }},
+    commands: {async executeCommand(...args) { calls.push(args); }}}, {subscriptions: []});
+  const valid = {scheme: 'vscode', authority: 'khang1604.multi-agents-chat', path: '/setup', query: '', fragment: ''};
+  for (const invalid of [{path: '/apply'}, {query: 'apply=true'}, {fragment: 'login'}, {authority: 'other'}, {scheme: 'file'}]) {
+    await handler.handleUri({...valid, ...invalid});
+  }
+  assert.deepEqual(calls, []);
+  await handler.handleUri(valid);
+  assert.deepEqual(calls, [['multi-agents.setup']]);
+});
 function api(trusted = true) {
   return {workspace: {isTrusted: trusted, workspaceFolders: [{uri: {scheme: 'file', fsPath: project.path}}]},
     window: {showQuickPick: async items => items[0]}};
@@ -214,4 +229,88 @@ test('auto accept enable requires confirmation and only targets current project'
     assert.equal(applied.length, decision ? 1 : 0);
     if (applied.length) assert.deepEqual(applied[0], [['auto-accept', 'on', '--json'], project.path]);
   }
+});
+
+function reviewUI(value) {
+  const ui = api(), commands = new Map(), executed = [], errors = [], calls = [];
+  let provider;
+  ui.Uri = {from: parts => ({...parts, toString() { return parts.scheme + ':' + parts.path + '?' + parts.query; }})};
+  ui.workspace.registerTextDocumentContentProvider = (scheme, p) => { assert.equal(scheme, 'ma-review'); provider = p; return {dispose() {}}; };
+  ui.commands = {registerCommand(id, fn) { commands.set(id, fn); return {dispose() {}}; },
+    async executeCommand(...args) { executed.push(args); }};
+  ui.window.showWarningMessage = async () => undefined;
+  ui.window.showInformationMessage = () => {};
+  ui.window.showErrorMessage = error => errors.push(error);
+  const connect = async () => fake({projects_list: [project]});
+  const run = async (args, cwd) => { calls.push({args, cwd}); return JSON.stringify(args[0] === 'review' ? value : {status: 'partial', remaining_files: ['other.py']}); };
+  registerReview(ui, {subscriptions: []}, connect, run);
+  return {ui, commands, executed, errors, calls, get provider() { return provider; }};
+}
+const preview = {workflow_id: 'f1', project_id: 'demo', project_path: project.path, acceptance: {status: 'pending'},
+  files: [{path: 'app/code.py', before: 'old code', after: 'new code', kind: 'modified', accepted: false}]};
+
+test('native diff uses readonly virtual content; accepting needs explicit confirmation', async () => {
+  const env = reviewUI(preview);
+  await env.commands.get('multi-agents.review')({workflowId: 'f1'});
+  assert.equal(env.executed[0][0], 'vscode.diff');
+  assert.equal(env.provider.provideTextDocumentContent(env.executed[0][1]), 'old code');
+  assert.equal(env.provider.provideTextDocumentContent(env.executed[0][2]), 'new code');
+  await env.commands.get('multi-agents.acceptFile')({workflowId: 'f1'});
+  assert.equal(env.calls.filter(c => c.args[0] === 'accept').length, 0);
+  env.ui.window.showWarningMessage = async () => 'Accept file';
+  await env.commands.get('multi-agents.acceptFile')({workflowId: 'f1'});
+  assert.deepEqual(env.calls.at(-1).args, ['accept', 'f1', '--project', 'demo', '--json', '--file', 'app/code.py']);
+});
+
+test('native review refuses other projects and unsafe file references', async () => {
+  for (const value of [{...preview, project_id: 'other'}, {...preview, files: [{...preview.files[0], path: '../private'}]}]) {
+    const env = reviewUI(value);
+    await env.commands.get('multi-agents.review')({workflowId: 'f1'});
+    assert.equal(env.executed.length, 0);
+    assert.equal(env.errors.length, 1);
+  }
+  const env = reviewUI(preview);
+  env.ui.workspace.isTrusted = false;
+  await env.commands.get('multi-agents.acceptAll')({workflowId: 'f1'});
+  assert.equal(env.calls.length, 0);
+});
+
+test('completed chat offers review and accept buttons; blocked has none', async () => {
+  for (const status of ['completed', 'blocked']) {
+    const buttons = [], out = stream(); out.button = value => buttons.push(value);
+    const current = {...state, status};
+    const client = fake({projects_list: [project], recover_context: {workflows: [current]}, get_workflow_status: current});
+    await createHandler(api(), async () => client)(request('status'), {}, out, {});
+    assert.deepEqual(buttons.map(b => b.command), status === 'completed'
+      ? ['multi-agents.review', 'multi-agents.acceptAll', 'multi-agents.acceptFile'] : []);
+  }
+});
+
+test('setup webview uses nonce CSP, no remote resources, one apply command and official login process task', async () => {
+  const html = setupHtml('testnonce', true);
+  assert.match(html, /default-src 'none'/);
+  assert.match(html, /script-src 'nonce-testnonce'/);
+  assert.ok(!html.includes('https://'));
+  const ui = api(), commands = new Map(), calls = [], tasks = [];
+  let receive;
+  ui.ViewColumn = {One: 1}; ui.TaskScope = {Global: 1};
+  ui.ProcessExecution = class { constructor(command, args) { this.command = command; this.args = args; } };
+  ui.Task = class { constructor(definition, scope, name, source, execution) { this.execution = execution; } };
+  ui.tasks = {async executeTask(task) { tasks.push(task); }};
+  ui.commands = {registerCommand(id, fn) { commands.set(id, fn); return {dispose() {}}; }};
+  const messages = [];
+  ui.window.createWebviewPanel = (id, title, column, options) => {
+    assert.deepEqual(options.localResourceRoots, []);
+    return {webview: {postMessage: message => messages.push(message), onDidReceiveMessage(fn) { receive = fn; }}};
+  };
+  registerSetup(ui, {subscriptions: []}, {command: 'pinned-python', args: ['ma.py', '--home', 'owned-home', 'mcp']},
+    async args => { calls.push(args); return JSON.stringify(args.includes('--plan') ? {agents: [], actions: {}} : {backup: 'owned-backup'}); });
+  commands.get('multi-agents.setup')();
+  await receive({type: 'refresh'});
+  await receive({type: 'apply', providers: ['codex'], actions: {chat: false}});
+  assert.equal(calls.filter(c => c.includes('--apply-options')).length, 1);
+  assert.deepEqual(JSON.parse(calls[1][2]), {providers: ['codex'], actions: {chat: false}});
+  await receive({type: 'login', provider: 'codex'});
+  assert.deepEqual(tasks[0].execution.args, ['ma.py', '--home', 'owned-home', 'setup', '--login', 'codex']);
+  assert.equal(calls.some(c => c.includes('--login')), false);
 });

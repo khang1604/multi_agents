@@ -208,7 +208,7 @@ def _run(hub, check=True):
     print('Setup complete. Next: cd <approved project>; ma init; then Copilot Chat: @hub PROMPT')
 
 
-def run(hub, check=True):
+def run(hub, check=True, action=None):
     """Roll back owned setup changes on failure; keep backups and all user data."""
     from .integrations import CLIENTS, remove_client
     from .lifecycle import uninstall
@@ -219,7 +219,7 @@ def run(hub, check=True):
     launcher_existed = (hub.store.home / 'runtime/installation.json').exists()
     integrations = {c: (hub.store.home / 'integrations' / (c + '.json')).exists() for c in CLIENTS}
     try:
-        _run(hub, check)
+        return action(hub) if action else _run(hub, check)
     except BaseException:
         for client, existed in integrations.items():
             if not existed and (hub.store.home / 'integrations' / (client + '.json')).exists():

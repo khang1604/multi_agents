@@ -41,6 +41,14 @@ function outcome(stream, state) {
     if (state.workspace && typeof file === 'string' && !path.isAbsolute(file) && within(state.workspace, path.resolve(state.workspace, file)))
       plain(stream, 'File trong worktree: ' + path.join(state.workspace, file));
   }
+  if (state.status === 'completed' && typeof stream.button === 'function') {
+    const args = [{workflowId: state.id}];
+    stream.button({command: 'multi-agents.review', title: 'Xem thay đổi', arguments: args});
+    if (state.acceptance?.status !== 'accepted') {
+      stream.button({command: 'multi-agents.acceptAll', title: 'Accept tất cả', arguments: args});
+      stream.button({command: 'multi-agents.acceptFile', title: 'Accept từng file', arguments: args});
+    }
+  }
   if (state.status === 'blocked' && state.calls >= state.max_calls)
     plain(stream, 'Đã hết ngân sách lượt AI; /retry không cấp thêm lượt. Kết quả và checkpoint vẫn được giữ.');
 }

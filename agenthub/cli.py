@@ -82,8 +82,14 @@ def parser():
     init.add_argument('--register-only', action='store_true', help='Register/refresh without interactive scope or baseline test; no ready claim')
     init.add_argument('--prepare', action='store_true', help='Confirm scope and run baseline checks; requires interactive terminal')
     setup = sub.add_parser('setup')
+    setup.add_argument('view', nargs='?', choices=['interface'], help='Open Quick Setup in VS Code')
     setup.add_argument('--check', dest='check', action='store_true', default=True, help='Official version/auth probes (default); no model calls')
     setup.add_argument('--offline', dest='check', action='store_false', help='Resolve paths only; leave version/auth unknown')
+    setup.add_argument('--advanced', action='store_true', help='Detailed model/provider/role setup')
+    setup.add_argument('--plan', action='store_true', help='Read one-page setup choices without writes')
+    setup.add_argument('--apply-options', help='Explicit JSON selections from the local setup UI')
+    setup.add_argument('--login', choices=SPECS, help='Open official interactive login; never reads auth files')
+    setup.add_argument('--json', action='store_true')
     doc = sub.add_parser('doctor'); doc.add_argument('--offline', action='store_true')
     agents = sub.add_parser('agents'); ac = agents.add_subparsers(dest='action', required=True)
     ls = ac.add_parser('list'); ls.add_argument('--check', action='store_true')
@@ -110,6 +116,10 @@ def parser():
     run.add_argument('--max-calls', type=int); run.add_argument('--request-key'); run.add_argument('--no-start', action='store_true')
     accept = sub.add_parser('accept', help='Apply completed changes to project files; no commit')
     accept.add_argument('workflow_id', nargs='?')
+    accept.add_argument('--file', action='append', dest='files', help='Accept only this delivery file; repeat for several files')
+    accept.add_argument('--project', help='Require workflow to belong to this project')
+    review = sub.add_parser('review', help='Read verified before/after snapshots; no model call')
+    review.add_argument('workflow_id', nargs='?'); review.add_argument('--project')
     auto = sub.add_parser('auto-accept', help='Choose whether completed changes are applied automatically')
     auto.add_argument('value', choices=['on', 'off', 'status'])
     handoff = sub.add_parser('handoff', help='Read the saved handoff or explicitly allow one rejected next approach')
@@ -227,8 +237,27 @@ def main(argv=None):
         else:
             show(initialize(hub, args.path, args.name, checks, args.replace_verify))
     elif command == 'setup':
-        from .wizard import run
-        run(hub, args.check)
+        from . import quick_setup
+        if args.view:
+            if args.plan or args.apply_options or args.login or args.advanced or not args.check:
+                raise ValueError('Use ma setup interface without terminal setup options')
+            show(quick_setup.open_interface(hub))
+        elif args.plan:
+            show(quick_setup.plan(hub, args.check))
+        elif args.apply_options:
+            choices = json.loads(args.apply_options)
+            if set(choices) != {'providers', 'actions'}:
+                raise ValueError('Invalid setup options')
+            show(quick_setup.apply(hub, choices['providers'], choices['actions']))
+        elif args.login:
+            if not sys.stdin.isatty():
+                raise ValueError('Open official login in an interactive terminal')
+            show(quick_setup.login(hub, args.login))
+        elif args.advanced:
+            from .wizard import run
+            run(hub, args.check)
+        else:
+            quick_setup.terminal(hub, args.check)
     elif command == 'doctor':
         import shutil
         show({'python': sys.version.split()[0], 'git': shutil.which('git'), 'home': str(hub.store.home),
@@ -301,14 +330,16 @@ def main(argv=None):
                 time.sleep(2)
         except KeyboardInterrupt:
             print('Monitor closed; workflow continues independently.')
-    elif command == 'accept':
-        from .acceptance import accept
+    elif command in {'accept', 'review'}:
+        from .acceptance import accept, preview
         workflow_id = latest(hub, args.workflow_id)
         flow = hub.store.workflow(workflow_id)
+        if args.project and hub.store.project(args.project)['id'] != flow['project_id']:
+            raise ValueError('Workflow belongs to another project')
         if flow['status'] == 'completed' and not flow.get('delivery'):
             from .retention import archive_completed
             archive_completed(hub.store, flow, hub.config['retention'])
-        show(accept(hub.store, workflow_id))
+        show(preview(hub.store, workflow_id) if command == 'review' else accept(hub.store, workflow_id, files=args.files))
     elif command == 'auto-accept':
         from .acceptance import mode
         show(mode(hub.store, current_project(hub), None if args.value == 'status' else args.value == 'on'))

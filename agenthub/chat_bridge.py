@@ -64,7 +64,7 @@ def build(home):
     with zipfile.ZipFile(temporary, 'w', zipfile.ZIP_DEFLATED) as archive:
         archive.writestr('[Content_Types].xml', content_types)
         archive.writestr('extension.vsixmanifest', manifest)
-        for name in ('package.json', 'extension.js', 'transport.js', 'handler.js'):
+        for name in ('package.json', 'extension.js', 'transport.js', 'handler.js', 'review.js', 'setup.js'):
             archive.write(source / name, 'extension/' + name)
         archive.writestr('extension/runtime.json', json.dumps(runtime, ensure_ascii=False))
     with zipfile.ZipFile(temporary) as archive:

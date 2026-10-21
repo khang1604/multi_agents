@@ -117,9 +117,29 @@ Chạy tại thư mục dự án, trừ setup/demo. `ID` là mã công việc.
 | `ma run "Yêu cầu của bạn"` | Giao việc qua terminal nếu muốn. |
 | `ma doctor` / `ma --help` | Chẩn đoán / xem trợ giúp. |
 
-Trong Copilot Chat dùng `@hub /agents`, `/status`, `/watch`, `/retry`, `/cancel`,
-`/accept [ID]`, `/autoaccept on|off|status`. Với lệnh workflow, thêm ID để chọn việc cụ thể;
-bỏ ID sẽ chọn việc gần nhất của dự án. Dừng theo dõi không hủy công việc.
+### Lệnh `@hub` trong Copilot Chat
+
+| Lệnh | Công dụng và ví dụ |
+|---|---|
+| `@hub <yêu cầu>` | Giao việc cho dự án đang mở, ví dụ `@hub Thêm bộ lọc công việc và test`. Hub trả mã công việc. |
+| `@hub /agents` | Liệt kê CLI agent và trạng thái đã biết; không gọi model. Copilot Chat và Copilot CLI là hai phần riêng. |
+| `@hub /status [ID]` | Xem một lần trạng thái, bước/provider đang chạy, ngân sách lượt và báo cáo đã lưu. Ví dụ: `@hub /status abc123`. |
+| `@hub /watch [ID]` | Theo dõi tiến độ tối đa khoảng 10 phút mỗi lần xem. Dừng theo dõi không hủy công việc. |
+| `@hub /retry [ID]` | Tiếp tục sau khi xử lý nguyên nhân bị chặn; giữ nguyên giới hạn lượt. Ví dụ: `@hub /retry abc123`. |
+| `@hub /cancel [ID]` | Yêu cầu dừng, giữ code và checkpoint đã lưu; không xóa file. |
+| `@hub /accept [ID]` | Xác nhận trong hộp thoại VS Code để áp dụng toàn bộ kết quả hoàn tất vào file dự án; không commit hoặc push. |
+| `@hub /autoaccept on` | Bật tự áp dụng riêng dự án sau khi xác nhận; dừng áp dụng nếu source có thay đổi xung đột. |
+| `@hub /autoaccept off` | Tắt tự áp dụng; kết quả tiếp theo chờ bạn duyệt. |
+| `@hub /autoaccept status` | Xem thiết lập tự áp dụng của dự án; mặc định tắt. |
+
+`[ID]` là tùy chọn: thay bằng mã công việc, không gõ dấu ngoặc vuông; bỏ ID để
+chọn việc gần nhất của dự án đang mở. Hub từ chối ID thuộc dự án khác.
+Nếu dự án còn việc chưa kết thúc, prompt mới chưa được giao; hãy theo dõi hoặc dừng việc cũ trước.
+Sau khi hoàn tất, các nút **Xem thay đổi**, **Accept tất cả**, **Accept từng file**
+giúp xem diff và nhận code trực tiếp; `/accept` áp dụng cả kết quả.
+Lệnh xem trạng thái/agent/tiến độ không hỏi model liên tục; giao việc hoặc retry có
+thể chạy CLI AI trong ngân sách còn lại. Accept không thay quyền sandbox của CLI
+và không vượt giới hạn quota của khung chat.
 
 Thử không gọi AI tại thư mục Multi Agents:
 

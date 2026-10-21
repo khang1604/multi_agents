@@ -120,10 +120,29 @@ Run in your project directory, except setup/demo. `ID` means workflow ID.
 | `ma run "Your request"` | Submit work through the terminal if preferred. |
 | `ma doctor` / `ma --help` | Diagnose problems / read command help. |
 
-Copilot Chat supports `@hub /agents`, `/status`, `/watch`, `/retry`, `/cancel`,
-`/accept [ID]` and `/autoaccept on|off|status`. Add an ID to workflow commands to select
-a specific task; otherwise Hub uses the latest task for the project.
-Stopping the progress view does not cancel the workflow.
+### `@hub` commands in Copilot Chat
+
+| Command | Purpose and example |
+|---|---|
+| `@hub <request>` | Submit work for the open project, e.g. `@hub Add task filtering and tests`. Hub returns a workflow ID. |
+| `@hub /agents` | List detected agent CLIs and known status; no model call. Copilot Chat and Copilot CLI are separate. |
+| `@hub /status [ID]` | Read the saved state, current phase/provider, call budget and available report once. Example: `@hub /status abc123`. |
+| `@hub /watch [ID]` | Follow progress for up to about 10 minutes per view. Stopping the view does not cancel work. |
+| `@hub /retry [ID]` | Resume after fixing a blocker; keeps the existing call budget. Example: `@hub /retry abc123`. |
+| `@hub /cancel [ID]` | Request cancellation while retaining saved code and checkpoints; does not delete files. |
+| `@hub /accept [ID]` | Confirm applying the completed delivery to project files in the VS Code dialog; no commit or push. |
+| `@hub /autoaccept on` | Enable automatic acceptance for this project after confirmation; conflicting source edits block application. |
+| `@hub /autoaccept off` | Disable automatic acceptance; future results wait for your approval. |
+| `@hub /autoaccept status` | Check this project's automatic acceptance setting; off by default. |
+
+`[ID]` is optional: replace it with a workflow ID without brackets, or omit it to
+select the latest workflow in the open project. IDs from other projects are refused.
+A new prompt is not dispatched while the project has unfinished work; watch or cancel it first.
+After completion, **Xem thay đổi**, **Accept tất cả** and **Accept từng file** provide
+native diff and acceptance controls; `/accept` applies the whole delivery.
+Status/agent/progress commands do not ask a model for updates; submitting work or
+retrying can run provider CLIs within the remaining budget. Hub acceptance does not
+change CLI sandbox permissions or bypass the host chat's quota limits.
 
 Try without AI from the Multi Agents directory:
 

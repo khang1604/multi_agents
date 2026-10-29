@@ -14,10 +14,12 @@ class AlreadyRunning(Exception):
 
 class FileLock:
     def __init__(self, path):
+        """Initialize FileLock state and its configured dependencies."""
         self.path = Path(path)
         self.file = None
 
     def __enter__(self):
+        """Acquire the platform-specific file lock before accessing shared state."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.file = self.path.open('a+b')
         try:
@@ -38,6 +40,7 @@ class FileLock:
         return self
 
     def __exit__(self, *_):
+        """Release the owned file lock and close its handle."""
         if self.file:
             if os.name == 'nt':
                 import msvcrt
@@ -73,6 +76,8 @@ def resolve_command(prefix):
                     if found_native:
                         return [str(found_native[0])] + prefix[1:]
         candidates = {
+            'npm': ['npm/bin/npm-cli.js'],
+            'npx': ['npm/bin/npx-cli.js'],
             'codex': ['@openai/codex/bin/codex.js'],
             'copilot': ['@github/copilot/index.js', '@github/copilot/dist/index.js'],
             'claude': ['@anthropic-ai/claude-code/cli.js'],
@@ -80,7 +85,8 @@ def resolve_command(prefix):
         for candidate in candidates:
             script = path.parent / 'node_modules' / candidate
             if script.is_file():
-                node = shutil.which('node')
+                adjacent_node = path.parent / 'node.exe'
+                node = str(adjacent_node) if name in {'npm', 'npx'} and adjacent_node.is_file() else shutil.which('node')
                 if node:
                     return [node, str(script)] + prefix[1:]
         raise ValueError('Cannot safely resolve Windows shim ' + str(path) +
@@ -89,6 +95,7 @@ def resolve_command(prefix):
 
 
 def spawn(command, **kwargs):
+    """Start a direct child process with platform-specific isolation of its process group."""
     if os.name == 'nt':
         kwargs['creationflags'] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
     else:
@@ -97,6 +104,7 @@ def spawn(command, **kwargs):
 
 
 def stop_tree(process):
+    """Stop an owned child process tree and confirm whether it exited."""
     if process.poll() is not None:
         return True
     try:
@@ -113,6 +121,7 @@ def stop_tree(process):
 
 
 def pid_alive(pid):
+    """Check process liveness conservatively across Windows and POSIX."""
     if not pid:
         return False
     if os.name == 'nt':

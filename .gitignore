@@ -5,3 +5,6 @@ __pycache__/
 *.local.json
 *.backup-*
 *.local.md
+
+# Local developer notes, task checkpoints, and maintenance tools.
+/.local/

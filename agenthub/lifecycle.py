@@ -15,6 +15,7 @@ from .settings import atomic_json
 
 
 def path_entries(value):
+    """Normalize and deduplicate Windows PATH entries without discarding other tools."""
     result, seen = [], set()
     for item in value.split(';'):
         if not item.strip():
@@ -27,6 +28,7 @@ def path_entries(value):
 
 
 def user_path(value=None):
+    """Read or explicitly update the current user PATH and notify future terminals."""
     if os.name != 'nt':
         raise ValueError('Use the ma shell launcher or your shell PATH on non-Windows hosts')
     import winreg
@@ -43,6 +45,22 @@ def user_path(value=None):
         return previous
 
 
+def _allow_layout_upgrade(home, target, previous, legacy, root):
+    """Back up only a hash-verified owned launcher from the previous entrypoint layout."""
+    record = home / 'runtime/installation.json'
+    if previous != legacy or not record.is_file() or record.is_symlink():
+        raise ValueError('Unrecognized existing launcher; not overwritten')
+    owned = json.loads(record.read_text(encoding='utf-8'))
+    if (owned.get('launcher') != str(target) or owned.get('source') != str(root)
+            or owned.get('sha256') != hashlib.sha256(previous).hexdigest()):
+        raise ValueError('Launcher ownership/hash changed; not overwritten')
+    backup = target.with_name(target.name + '.backup-layout')
+    if backup.is_symlink() or (backup.exists() and backup.read_bytes() != previous):
+        raise ValueError('Existing launcher backup differs; preserved')
+    if not backup.exists():
+        backup.write_bytes(previous)
+
+
 def install_posix_command(home, which=None):
     """Pin interpreter/home without changing shell startup files or another command."""
     home = Path(home).resolve()
@@ -53,10 +71,10 @@ def install_posix_command(home, which=None):
         raise ValueError('Launcher/settings path escapes the owned home')
     which = which or shutil.which
     collision = which('ma')
-    if collision and Path(collision).resolve() not in {target, (root / 'ma').resolve()}:
+    if collision and Path(collision).resolve() not in {target, (root / 'bin/ma').resolve()}:
         raise ValueError('ma already exists at ' + str(collision) + '; no command was overwritten')
     body = ('#!/bin/sh\nexec ' + shlex.quote(sys.executable) + ' '
-            + shlex.quote(str(root / 'ma.py')) + ' --home ' + shlex.quote(str(home)) + ' "$@"\n').encode('utf-8')
+            + shlex.quote(str(root / 'cli/ma.py')) + ' --home ' + shlex.quote(str(home)) + ' "$@"\n').encode('utf-8')
     if target.is_symlink():
         raise ValueError('Refusing a symlink launcher')
     if record.exists():
@@ -67,8 +85,11 @@ def install_posix_command(home, which=None):
             raise ValueError('Launcher changed; not overwritten')
     elif target.exists():
         raise ValueError('Unowned existing launcher; not overwritten')
-    if target.exists() and target.read_bytes() != body:
-        raise ValueError('Launcher interpreter/source changed; uninstall the owned launcher before reinstalling')
+    previous = target.read_bytes() if target.exists() else None
+    if previous is not None and previous != body:
+        legacy = body.replace(shlex.quote(str(root / 'cli/ma.py')).encode('utf-8'),
+                              shlex.quote(str(root / 'ma.py')).encode('utf-8'))
+        _allow_layout_upgrade(home, target, previous, legacy, root)
     existed = target.exists()
     target.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -80,6 +101,8 @@ def install_posix_command(home, which=None):
     except BaseException:
         if not existed:
             target.unlink(missing_ok=True)
+        elif previous is not None:
+            target.write_bytes(previous)
         raise
     return {'installed': str(target), 'user_path_added': False,
             'shell_command': 'export PATH=' + shlex.quote(str(target.parent)) + ':"$PATH"',
@@ -87,6 +110,7 @@ def install_posix_command(home, which=None):
 
 
 def install_command(home, get_path=None, set_path=None, which=None):
+    """Explicitly install the owned Windows launcher or delegate to POSIX installation."""
     if os.name != 'nt' and get_path is None and set_path is None:
         return install_posix_command(home, which)
     home = Path(home).resolve()
@@ -98,11 +122,15 @@ def install_command(home, get_path=None, set_path=None, which=None):
     collision = which('ma')
     # A source checkout already on PATH may expose our shipped ma.cmd through the
     # older hub installer. It is the same application, not a foreign command.
-    if collision and Path(collision).resolve() not in {target, (root / 'ma.cmd').resolve()}:
+    if collision and Path(collision).resolve() not in {target, (root / 'bin/ma.cmd').resolve()}:
         raise ValueError('ma already exists at ' + str(collision) + '; no command was overwritten')
-    body = '@echo off\r\n"' + sys.executable + '" "' + str(root / 'ma.py') + '" --home "' + str(home) + '" %*\r\nexit /b %errorlevel%\r\n'
-    if target.is_symlink() or (target.exists() and target.read_bytes() != body.encode('utf-8')):
+    body = '@echo off\r\n"' + sys.executable + '" "' + str(root / 'cli/ma.py') + '" --home "' + str(home) + '" %*\r\nexit /b %errorlevel%\r\n'
+    if target.is_symlink():
         raise ValueError('Unrecognized existing launcher; not overwritten')
+    previous = target.read_bytes() if target.exists() else None
+    if previous is not None and previous != body.encode('utf-8'):
+        legacy = body.replace(str(root / 'cli/ma.py'), str(root / 'ma.py')).encode('utf-8')
+        _allow_layout_upgrade(home, target, previous, legacy, root)
     old = (get_path or user_path)()
     entries = path_entries(old)
     binpath = str(target.parent)
@@ -134,12 +162,15 @@ def install_command(home, get_path=None, set_path=None, which=None):
             (set_path or user_path)(old)
         if not existed:
             target.unlink(missing_ok=True)
+        elif previous is not None:
+            target.write_bytes(previous)
         raise
     return {'installed': str(target), 'user_path_added': added, 'retired_source_entries': len(retired),
             'note': 'Open a new terminal. One pinned ma launcher; legacy hub remains callable by explicit path.'}
 
 
 def uninstall(home, get_path=None, set_path=None):
+    """Remove only verified owned launcher/PATH entries while retaining application data."""
     home = Path(home).resolve()
     record = home / 'runtime/installation.json'
     if not record.exists():
@@ -170,7 +201,9 @@ def uninstall(home, get_path=None, set_path=None):
 
 
 def update_source(root, apply=False, run=subprocess.run):
+    """Preview or explicitly fast-forward a clean source checkout without resetting user changes."""
     def git(*args):
+        """Run a bounded update-related Git command and reject failures without changing settings."""
         result = run(['git', '-C', str(root), *args], capture_output=True, encoding='utf-8', timeout=60)
         if result.returncode:
             raise ValueError('Update Git command failed; working files and settings retained')

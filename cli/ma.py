@@ -2,6 +2,10 @@
 """V2 terminal-first entrypoint; legacy hub.py remains available."""
 import sys
 import subprocess
+# Direct invocation must work from any current directory without installation.
+from pathlib import Path as _EntryPath
+sys.path.insert(0, str(_EntryPath(__file__).resolve().parents[1]))
+
 from agenthub.cli import main
 
 if __name__ == '__main__':

@@ -12,7 +12,7 @@ After=default.target
 [Service]
 Type=simple
 WorkingDirectory="$root"
-ExecStart="$python" "$root/hub.py" --home "$root/data" daemon
+ExecStart="$python" "$root/cli/hub.py" --home "$root/data" daemon
 Restart=on-failure
 RestartSec=10
 [Install]

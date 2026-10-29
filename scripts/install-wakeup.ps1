@@ -10,7 +10,7 @@ if ($TaskName -notmatch '^MultiAgents-Wake-[a-f0-9]{12}$') { throw 'Invalid owne
 foreach ($taskPath in @($PythonPath, $SourcePath, $HubHome)) {
     if ($taskPath.Contains('"') -or $taskPath.Contains("`r") -or $taskPath.Contains("`n")) { throw 'Invalid runtime path' }
 }
-$taskArguments = '"' + (Join-Path $SourcePath 'ma.py') + '" --home "' + $HubHome + '" wake'
+$taskArguments = '"' + (Join-Path $SourcePath 'cli/ma.py') + '" --home "' + $HubHome + '" wake'
 $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 if ($existing) {
     if (-not $Owned -or $existing.Actions.Count -ne 1 -or $existing.Actions[0].Execute -ne $PythonPath -or $existing.Actions[0].Arguments -ne $taskArguments) {

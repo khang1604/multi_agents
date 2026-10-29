@@ -2,7 +2,7 @@
   "name": "multi-agents-chat",
   "displayName": "Multi Agents Hub Chat",
   "description": "Send @hub prompts directly to your local Multi Agents orchestrator.",
-  "version": "0.1.6",
+  "version": "0.1.9",
   "publisher": "khang1604",
   "engines": {
     "vscode": "^1.93.0"
@@ -31,36 +31,36 @@
         "id": "multi-agents.hub",
         "name": "hub",
         "fullName": "Multi Agents Hub",
-        "description": "Giao việc trực tiếp cho Hub; /agents, /status, /watch, /retry, /cancel",
+        "description": "Send tasks directly to Hub; /agents, /status, /watch, /retry, /cancel",
         "isSticky": true,
         "commands": [
           {
             "name": "agents",
-            "description": "Xem agent; không gọi model"
+            "description": "List agents; no model calls"
           },
           {
             "name": "status",
-            "description": "Xem workflow của project"
+            "description": "View the project's workflow"
           },
           {
             "name": "watch",
-            "description": "Theo dõi workflow đang chạy"
+            "description": "Watch the active workflow"
           },
           {
             "name": "retry",
-            "description": "Tiếp tục workflow bị chặn; giữ nguyên budget"
+            "description": "Resume a blocked workflow; preserve the budget"
           },
           {
             "name": "cancel",
-            "description": "Dừng workflow, giữ code/checkpoint"
+            "description": "Cancel the workflow; retain code/checkpoints"
           },
           {
             "name": "accept",
-            "description": "Xác nhận áp dụng code vào file dự án"
+            "description": "Confirm applying code to project files"
           },
           {
             "name": "autoaccept",
-            "description": "on/off/status: tự áp dụng code, riêng dự án này"
+            "description": "on/off/status: automatic acceptance for this project only"
           }
         ]
       }
@@ -68,19 +68,19 @@
     "commands": [
       {
         "command": "multi-agents.review",
-        "title": "Multi Agents: Xem thay đổi"
+        "title": "Multi Agents: Review changes"
       },
       {
         "command": "multi-agents.acceptAll",
-        "title": "Multi Agents: Accept tất cả"
+        "title": "Multi Agents: Accept all"
       },
       {
         "command": "multi-agents.acceptFile",
-        "title": "Multi Agents: Accept từng file"
+        "title": "Multi Agents: Accept individual files"
       },
       {
         "command": "multi-agents.setup",
-        "title": "Multi Agents: Setup nhanh"
+        "title": "Multi Agents: Quick Setup"
       }
     ],
     "menus": {

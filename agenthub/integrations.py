@@ -13,13 +13,15 @@ CLIENTS = ('antigravity', 'vscode', 'codex', 'copilot', 'claude')
 
 
 def server(home, client):
+    """Build a pinned local stdio server definition for a supported client."""
     if client not in CLIENTS:
         raise ValueError('Unsupported client; use ma run from Terminal')
-    return {'command': sys.executable, 'args': [str(Path(__file__).resolve().parents[1] / 'ma.py'),
+    return {'command': sys.executable, 'args': [str(Path(__file__).resolve().parents[1] / 'cli/ma.py'),
             '--home', str(Path(home).resolve()), 'mcp', '--client', client]}
 
 
 def client_target(client):
+    """Resolve the documented per-user configuration path for a supported MCP client."""
     home = Path.home()
     if os.name == 'nt':
         code_base = Path(os.environ.get('APPDATA', home / 'AppData/Roaming'))
@@ -37,6 +39,7 @@ def client_target(client):
 
 
 def integration_plan(home, client):
+    """Describe an optional client integration without writing its settings."""
     entry = server(home, client)
     if client == 'codex':
         return {'client': client, 'command': ['codex', 'mcp', 'add', 'multi_agents', '--', entry['command'], *entry['args']],
@@ -47,6 +50,7 @@ def integration_plan(home, client):
 
 
 def install_client(home, client, apply=False, target=None, runner=None):
+    """Explicitly merge an owned MCP entry with backups while preserving unrelated settings."""
     plan = integration_plan(home, client)
     if not apply:
         return plan
@@ -69,19 +73,42 @@ def install_client(home, client, apply=False, target=None, runner=None):
         desired = {'type': 'stdio', **desired}
     existing = entries.get('multi_agents')
     if existing is not None and existing != desired:
-        raise ValueError('Client server multi_agents already exists with different settings; not overwritten')
+        # Only migrate the exact former layout, never an edited or foreign entry.
+        record = Path(home) / 'integrations' / (client + '.json')
+        legacy = {**desired, 'args': list(desired['args'])}
+        legacy['args'][0] = str(Path(__file__).resolve().parents[1] / 'ma.py')
+        owned = {}
+        if record.is_file() and not record.is_symlink():
+            try:
+                owned = json.loads(record.read_text(encoding='utf-8'))
+            except (ValueError, OSError):
+                pass
+        if (not isinstance(owned, dict) or owned.get('client') != client
+                or owned.get('path') != str(path) or owned.get('key') != key
+                or owned.get('entry') != existing or existing != legacy):
+            raise ValueError('Client server multi_agents already exists with different settings; not overwritten. '
+                             'Select only the intended MCP client in ma setup; review conflicting settings manually.')
     if existing == desired:
         return {'client': client, 'status': 'already configured', 'path': str(path), 'live_verified': False}
     entries['multi_agents'] = desired
     backup = atomic_json(path, value)
     # Record only our entry for safe future removal; never copy sibling credentials.
-    atomic_json(Path(home) / 'integrations' / (client + '.json'),
-                {'client': client, 'path': str(path), 'key': key, 'entry': desired})
+    try:
+        atomic_json(Path(home) / 'integrations' / (client + '.json'),
+                    {'client': client, 'path': str(path), 'key': key, 'entry': desired})
+    except BaseException:
+        # Do not leave a migrated entry behind with stale ownership metadata.
+        if backup:
+            shutil.copy2(backup, path)
+        else:
+            path.unlink(missing_ok=True)
+        raise
     return {'client': client, 'status': 'configured; refresh client and verify tools',
             'path': str(path), 'backup': backup, 'live_verified': False}
 
 
 def remove_client(home, client):
+    """Remove only an unchanged owned MCP entry and retain unrelated configuration."""
     record = Path(home) / 'integrations' / (client + '.json')
     if not record.exists():
         return {'client': client, 'status': 'not owned; unchanged'}
@@ -115,27 +142,49 @@ def remove_client(home, client):
 
 
 def install_codex(home, runner=None):
+    """Use the official Codex MCP command with ownership checks and configuration backups."""
     from .platforms import resolve_command
     from .registry import probe
     runner = runner or probe
     prefix = resolve_command(['codex'])
     record = Path(home) / 'integrations/codex.json'
     entry = server(home, 'codex')
+    config = Path(os.environ.get('CODEX_HOME', Path.home() / '.codex')) / 'config.toml'
+    upgrading = False
     code, text = runner(prefix + ['mcp', 'get', 'multi_agents', '--json'])
     if code == 0:
         current = json.loads(text)
         transport = current.get('transport', current)
         if transport.get('command') == entry['command'] and transport.get('args') == entry['args']:
             return {'client': 'codex', 'status': 'already configured', 'live_verified': False}
-        raise ValueError('Codex server multi_agents already exists; not overwritten')
+        legacy = {**entry, 'args': list(entry['args'])}
+        legacy['args'][0] = str(Path(__file__).resolve().parents[1] / 'ma.py')
+        owned = {}
+        if record.is_file() and not record.is_symlink():
+            try:
+                owned = json.loads(record.read_text(encoding='utf-8'))
+            except (ValueError, OSError):
+                pass
+        if (not isinstance(owned, dict) or owned.get('client') != 'codex'
+                or owned.get('path') != str(config) or owned.get('entry') != legacy
+                or transport.get('command') != legacy['command'] or transport.get('args') != legacy['args']
+                or transport.get('type', 'stdio') != 'stdio'
+                or any(value not in (None, {}, [], '') for key, value in transport.items()
+                       if key not in {'type', 'command', 'args'})
+                or current.get('enabled') is False
+                or not config.is_file()):
+            raise ValueError('Codex server multi_agents already exists; not overwritten')
+        upgrading = True
     # Back up the official config without parsing its non-MCP settings.
-    config = Path(os.environ.get('CODEX_HOME', Path.home() / '.codex')) / 'config.toml'
     backup = None
     if config.is_symlink(): raise ValueError('Refusing symlink Codex config')
     if config.exists():
         backup = config.with_name(config.name + '.backup-' + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ'))
         shutil.copy2(config, backup)
     try:
+        if upgrading:
+            code, _ = runner(prefix + ['mcp', 'remove', 'multi_agents'])
+            if code: raise ValueError('Official Codex MCP upgrade removal failed; prior config restored')
         code, _ = runner(prefix + ['mcp', 'add', 'multi_agents', '--', entry['command'], *entry['args']])
         if code: raise ValueError('Official Codex MCP registration failed')
         atomic_json(record, {'client': 'codex', 'path': str(config), 'entry': entry})

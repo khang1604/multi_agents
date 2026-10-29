@@ -11,6 +11,11 @@ import time
 import uuid
 import zipfile
 
+# Direct invocation must work from any current directory without installation.
+from pathlib import Path as _EntryPath
+sys.path.insert(0, str(_EntryPath(__file__).resolve().parents[1]))
+
+from agenthub.demo_fixture import write_demo
 from agenthub.api import Hub
 from agenthub.config import default_home, load, ROOT
 from agenthub.engine import Engine
@@ -20,10 +25,12 @@ from agenthub.workspace import diff, git
 
 
 def output(value):
+    """Print a legacy CLI result as structured JSON."""
     print(json.dumps(value, ensure_ascii=False, indent=2))
 
 
 def parser():
+    """Build the compatible legacy Hub command parser."""
     p = argparse.ArgumentParser(description='Personal multi-agent coordinator — local, durable, Auto quota mode')
     p.add_argument('--home', default=str(default_home()), help='Data/config directory; keep this on a local disk')
     sub = p.add_subparsers(dest='command', required=True)
@@ -65,6 +72,7 @@ def parser():
 
 
 def doctor(hub):
+    """Check local CLI installation/version availability without a model call."""
     providers = {}
     for name, entry in hub.config['providers'].items():
         try:
@@ -82,9 +90,10 @@ def doctor(hub):
 
 
 def make_demo(hub):
+    """Create and register a synthetic demo project without overwriting existing source."""
     target = hub.store.home / 'demo-source'
     if not target.exists():
-        shutil.copytree(ROOT / 'examples/todo', target)
+        write_demo(target)
         git(target, 'init')
         git(target, 'add', '.')
         git(target, '-c', 'user.name=Agent Hub Demo', '-c', 'user.email=demo@localhost', 'commit', '-m', 'Initial demo')
@@ -92,6 +101,7 @@ def make_demo(hub):
 
 
 def main(argv=None):
+    """Dispatch legacy Hub commands through the same engine, store, and security checks."""
     args = parser().parse_args(argv)
     hub = Hub(args.home)
     if args.command == 'init':
@@ -159,13 +169,13 @@ def main(argv=None):
         serve(hub.store.home)
     elif args.command == 'mcp-config':
         output({'mcpServers': {'agent-hub-private': {'command': sys.executable,
-                'args': [str(ROOT / 'hub.py'), '--home', str(hub.store.home), 'mcp']}}})
+                'args': [str(ROOT / 'cli/hub.py'), '--home', str(hub.store.home), 'mcp']}}})
     elif args.command == 'demo':
         if args.simulate:
             from agenthub.simulation import simulate
             output(simulate())
         else:
-            output({'project': make_demo(hub), 'next': 'Run the objective in examples/todo/TASK.md with run demo --task-file ...'})
+            output({'project': make_demo(hub), 'next': 'Run the objective in the generated demo-source/TASK.md with run demo --task-file ...'})
 
 
 if __name__ == '__main__':

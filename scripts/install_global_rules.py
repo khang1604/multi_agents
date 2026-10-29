@@ -10,11 +10,12 @@ END = '<!-- AGENT-HUB-GLOBAL-RULES:END -->'
 
 
 def main():
+    """Preview or explicitly install bounded global-rule blocks with ownership checks and backups."""
     parser = argparse.ArgumentParser()
     parser.add_argument('--apply', action='store_true')
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
-    rules = (root / 'GLOBAL_RULES.md').read_text(encoding='utf-8')
+    rules = (root / 'ai/GLOBAL_RULES.md').read_text(encoding='utf-8')
     home = Path.home()
     targets = [Path(os.environ.get('CODEX_HOME', home / '.codex')) / 'AGENTS.md',
                home / '.claude' / 'CLAUDE.md', home / '.copilot' / 'copilot-instructions.md',

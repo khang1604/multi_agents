@@ -1,8 +1,8 @@
 # Add only this Hub directory to the current user's PATH; no administrator needed.
 $ErrorActionPreference = 'Stop'
-$hubRoot = Split-Path -Parent $PSScriptRoot
+$hubRoot = Join-Path (Split-Path -Parent $PSScriptRoot) 'bin'
 if (-not (Test-Path -LiteralPath (Join-Path $hubRoot 'hub.cmd'))) {
-    throw 'hub.cmd not found beside hub.py.'
+    throw 'bin/hub.cmd not found.'
 }
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 $entries = @($userPath -split ';' | Where-Object { $_ })

@@ -36,12 +36,13 @@ def code_command(executable):
 
 
 def build(home):
+    """Package the VS Code extension with pinned runtime paths and verify the VSIX archive."""
     folder = Path(home) / 'integrations/vscode-chat'
     folder.mkdir(parents=True, exist_ok=True)
     source = ROOT / 'integrations/vscode-chat'
     metadata = json.loads((source / 'package.json').read_text(encoding='utf-8'))
     version = metadata['version']
-    runtime = {'command': sys.executable, 'args': [str(ROOT / 'ma.py'), '--home',
+    runtime = {'command': sys.executable, 'args': [str(ROOT / 'cli/ma.py'), '--home',
                str(Path(home).resolve()), 'mcp', '--client', 'vscode-hub-chat']}
     identity = escape(metadata['publisher'])
     manifest = f'''<?xml version="1.0" encoding="utf-8"?>
@@ -76,6 +77,7 @@ def build(home):
 
 
 def install(home, apply=False, runner=None, command=None):
+    """Explicitly install or upgrade only an owned VS Code extension and verify its listing."""
     executable = command or shutil.which('code')
     if not executable:
         raise ValueError('VS Code CLI not found; install VS Code or add its bin directory to PATH')
@@ -124,7 +126,7 @@ def check_stdio(home):
                  'params': {'protocolVersion': '2024-11-05', 'capabilities': {}}},
                 {'jsonrpc': '2.0', 'method': 'notifications/initialized'},
                 {'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list'}]
-    process = subprocess.run([sys.executable, str(ROOT / 'ma.py'), '--home', str(home),
+    process = subprocess.run([sys.executable, str(ROOT / 'cli/ma.py'), '--home', str(home),
                               'mcp', '--client', 'readiness-check'],
                              input=''.join(json.dumps(message) + '\n' for message in messages),
                              capture_output=True, encoding='utf-8', errors='replace', timeout=20)

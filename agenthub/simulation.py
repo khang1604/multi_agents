@@ -1,10 +1,10 @@
 """Offline integration demonstration. It never invokes a real model."""
 import json
 from pathlib import Path
-import shutil
 import sys
 import tempfile
 
+from .demo_fixture import write_demo
 from .adapters import Result
 from .api import Hub
 from .config import ROOT, defaults
@@ -31,6 +31,7 @@ class FilterTests(unittest.TestCase):
 
 
 def report(role, complexity='standard', verdict='approve', findings=None):
+    """Build a synthetic role report for offline orchestration tests."""
     return {'outcome': 'completed', 'summary': 'SIMULATED ' + role,
             'steps': ['Inspect code', 'Implement task filtering', 'Run verification'],
             'acceptance': ['Compatible API', 'Filtering works', 'Tests pass'],
@@ -41,10 +42,12 @@ def report(role, complexity='standard', verdict='approve', findings=None):
 
 class SimulatedInvoker:
     def __init__(self, fail_leader=True):
+        """Initialize SimulatedInvoker state and its configured dependencies."""
         self.fail_leader = fail_leader
         self.calls = []
 
     def run(self, provider, role, context, workspace, folder, network, on_pid, cancelled):
+        """Simulate one provider attempt, including optional leader failure and fixture changes."""
         self.calls.append((provider, role))
         folder.mkdir(parents=True, exist_ok=True)
         (folder / 'SIMULATED.txt').write_text('No model called.\n', encoding='utf-8')
@@ -57,9 +60,10 @@ class SimulatedInvoker:
 
 
 def setup_fixture(folder):
+    """Create a disposable synthetic Git project and independent Hub state."""
     folder = Path(folder)
     source = folder / 'source'
-    shutil.copytree(ROOT / 'examples/todo', source)
+    write_demo(source)
     git(source, 'init')
     git(source, 'add', '.')
     git(source, '-c', 'user.name=Test', '-c', 'user.email=test@localhost', 'commit', '-m', 'Baseline')
@@ -75,6 +79,7 @@ def setup_fixture(folder):
 
 
 def simulate():
+    """Run an offline workflow with fake providers and real Git/verifier behavior."""
     with tempfile.TemporaryDirectory(prefix='agenthub-offline-') as tmp:
         hub, source, project = setup_fixture(tmp)
         flow = hub.start('demo', 'Add status and search filters with tests', 'offline-demo', launch=False)

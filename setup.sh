@@ -6,4 +6,4 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 1
 fi
 python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,11) else "Python 3.11+ is required")'
-exec python3 "$(dirname "$0")/ma.py" setup "$@"
+exec python3 "$(dirname "$0")/cli/ma.py" setup "$@"

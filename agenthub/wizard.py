@@ -9,6 +9,7 @@ from .settings import atomic_json, ensure_idle
 
 
 def checkbox(items, selected, read=None, write=print):
+    """Collect terminal selections while preserving defaults and supporting cancellation."""
     selected = set(selected)
     if read is None and os.name == 'nt' and sys.stdin.isatty():
         import msvcrt
@@ -38,6 +39,7 @@ def checkbox(items, selected, read=None, write=print):
 
 
 def configure(hub, selected, policies=None):
+    """Persist validated provider selections/model policies with locking and backups."""
     from copy import deepcopy
     from .platforms import FileLock
     with FileLock(hub.store.home / 'settings.lock'):
@@ -95,6 +97,7 @@ def choose_policy(config, selected, results, ask, write, label='All selected age
 
 
 def collect_preferences(config, selected, results, ask=None, write=print):
+    """Collect shared and optional individual provider/model/role choices."""
     ask = ask or input
     names = sorted(selected)
     if not names:
@@ -115,8 +118,8 @@ def collect_preferences(config, selected, results, ask=None, write=print):
             policies.setdefault(name, {}).update(override[name])
         allowed = SPECS[name]['roles']
         while True:
-            roles = ask(name + ' roles [' + ','.join(allowed) + '] (nhan Enter de giu nguyen): ').strip().lower()
-            if roles in {'', 'keep', 'default', 'blank keeps current', 'giữ nguyên', 'giu nguyen'}:
+            roles = ask(name + ' roles [' + ','.join(allowed) + '] (Enter keeps current): ').strip().lower()
+            if roles in {'', 'keep', 'default', 'blank keeps current', 'gi\u1eef nguy\u00ean', 'giu nguyen'}:
                 break
             values = list(dict.fromkeys(s.strip() for s in roles.split(',')))
             if not values or set(values) - set(allowed):
@@ -139,38 +142,46 @@ def login_selected(hub, selected, ask=None, write=print, runner=None, discoverer
     while names:
         rows = [discoverer(name, hub.config['providers'][name], check=True) for name in names]
         if all(row.get('authentication') == 'AUTHENTICATED' for row in rows):
-            write('Các CLI đã chọn đều có xác nhận đăng nhập từ provider.')
+            write('All selected CLIs have provider-confirmed authentication.')
             return rows
         for number, row in enumerate(rows, 1):
             auth = row.get('authentication', 'UNKNOWN')
-            label = 'Đã đăng nhập' if auth == 'AUTHENTICATED' else 'Chưa đăng nhập' if auth == 'NOT_AUTHENTICATED' else 'Chưa xác minh đăng nhập'
+            label = 'Authenticated' if auth == 'AUTHENTICATED' else 'Not authenticated' if auth == 'NOT_AUTHENTICATED' else 'Authentication unverified'
             if row['state'] == 'NOT_INSTALLED':
-                label = 'Chưa cài CLI/PATH'
+                label = 'CLI/PATH not installed'
             write(f'{number}. {row["agent"]} CLI: {label}')
-        write('CLI chưa có probe auth giữ UNKNOWN; mở login không tự chứng minh còn quota.')
-        choice = ask('Chọn số để đăng nhập tại đây; 0 tiếp tục setup: ').strip()
+        write('UNKNOWN means the login could not be verified, not that you are signed out.')
+        write('Already signed in? Choose 0 to continue; logging in again is optional. Login does not prove quota is available.')
+        choice = ask('Choose a number to log in here; 0 continues setup: ').strip()
         if choice == '0':
             return rows
         if not choice.isdigit() or not 1 <= int(choice) <= len(names):
-            write('Chọn đúng số trong danh sách hoặc 0.')
+            write('Choose a number from the list or 0.')
             continue
         row = rows[int(choice) - 1]
+        if row.get('authentication') == 'AUTHENTICATED':
+            write('Already authenticated; login skipped.')
+            continue
         if row['state'] == 'NOT_INSTALLED':
-            write('Cài CLI chính thức trước; setup không tự cài provider.')
+            write('Install the official CLI first; setup does not install providers automatically.')
             continue
         name = row['agent']
-        write('Mở đăng nhập chính thức của ' + name + '; hoàn tất rồi thoát CLI để quay lại setup. Không gửi token cho Hub.')
+        write('Opening the official login for ' + name + '; finish and exit the CLI to return to setup. Do not send tokens to Hub.')
         try:
             # Inherit the human terminal for browser/device flow. No capture, shell or credentials.
             result = runner(execution_command(name, hub.config['providers'][name]) + commands[name])
             if result.returncode:
-                write('Login chưa hoàn tất; kiểm tra thông báo của CLI. Cấu hình và sandbox được giữ nguyên.')
+                write('Login is incomplete; check the CLI messages. Configuration and sandbox settings are preserved.')
+            else:
+                write('Official login command completed. Hub will recheck; unsupported probes may still report UNKNOWN. '
+                      'Choose 0 to continue without repeating login.')
         except (OSError, subprocess.SubprocessError):
-            write('Không mở được login CLI; kiểm tra cài đặt/PATH.')
+            write('Could not open the login CLI; check installation/PATH.')
     return []
 
 
 def _run(hub, check=True):
+    """Perform the interactive setup workflow after discovering current CLI state."""
     print('MULTI AGENTS — TERMINAL SETUP (official CLI login menu; no model calls)')
     print('Python:', sys.version.split()[0], 'Home:', hub.store.home)
     import shutil

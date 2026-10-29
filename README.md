@@ -1,6 +1,6 @@
 # Multi Agents
 
-**English** | [Tiếng Việt](README.vi.md)
+Documentation and interface language: **English**.
 
 Coordinate Codex, Claude Code, Copilot CLI and Antigravity CLI for planning,
 implementation, testing and review. Install only the tools you need; Codex/Claude
@@ -61,13 +61,17 @@ ma setup interface
 
 This sends an open request without applying settings. Requires `code` on PATH and
 the Hub extension installed by the same Hub source/home in the default VS Code profile.
-If the extension is missing, run `ma setup` and select **Kết nối VS Code @hub** first.
+If the extension is missing, run `ma setup` and select **Connect VS Code @hub** first.
 If the interface does not appear, reload VS Code and retry, or use the Command Palette:
 
 
-1. Press `Ctrl+Shift+P` → **Multi Agents: Setup nhanh**.
-2. Select CLIs/integrations, log in if needed and check status again.
-3. Click **Áp dụng** (Apply) once. For individual model/role settings, use `ma setup --advanced`.
+1. Press `Ctrl+Shift+P` → **Multi Agents: Quick Setup**.
+2. Existing CLI logins are checked automatically. Verified sessions show **Sign out**;
+   other states show **Login**, including unselected agents. Missing CLIs must be installed first.
+   Status refreshes after the auth terminal ends, keeping your unsaved choices.
+   For Copilot/Antigravity sign-out, enter `/logout` in that terminal, then exit.
+   UNKNOWN means unverified; it does not mean you must log in again.
+3. Click **Apply once**. For individual model/role settings, use `ma setup --advanced`.
 
 Open a new terminal on Windows after installing the command. On Ubuntu, add the launcher
 directory to PATH using the command printed by setup; setup does not edit shell profiles.
@@ -94,8 +98,8 @@ In Copilot Chat with Hub installed:
 @hub Add task filtering by status and keyword. Preserve existing calls, add tests and review the changes.
 ```
 
-Hub returns a workflow ID and progress. Once complete, choose **Xem thay đổi** (Review changes),
-then **Accept tất cả** (Accept all) or **Accept từng file** (Accept individual files).
+Hub returns a workflow ID and progress. Once complete, choose **Review changes**,
+then **Accept all** or **Accept individual files**.
 Acceptance applies files without committing or pushing. Other chat clients need Hub MCP tools.
 A workflow ID confirms the request reached Hub.
 
@@ -138,7 +142,7 @@ Run in your project directory, except setup/demo. `ID` means workflow ID.
 `[ID]` is optional: replace it with a workflow ID without brackets, or omit it to
 select the latest workflow in the open project. IDs from other projects are refused.
 A new prompt is not dispatched while the project has unfinished work; watch or cancel it first.
-After completion, **Xem thay đổi**, **Accept tất cả** and **Accept từng file** provide
+After completion, **Review changes**, **Accept all** and **Accept individual files** provide
 native diff and acceptance controls; `/accept` applies the whole delivery.
 Status/agent/progress commands do not ask a model for updates; submitting work or
 retrying can run provider CLIs within the remaining budget. Hub acceptance does not
@@ -163,7 +167,7 @@ See [verification results](VERIFICATION.md), [fixed issues and contribution task
 [contributing](CONTRIBUTING.md), [Handoff v2](docs/HANDOFF.md) and the [detailed guide](docs/V2_GUIDE.md).
 Read [global rules](GLOBAL_RULES.md) and [security](docs/SECURITY.md) before real runs:
 no real user data/secrets, preserve CLI sandboxes, and use OS isolation when requested by the user.
-Supporting technical documents currently include Vietnamese content.
+Supporting technical documents are also available in English.
 
 Built from the author's ideas, with inspiration from [Maestro](https://github.com/RunMaestro/Maestro),
 [agent-intern](https://github.com/SinanTufekci/agent-intern),

@@ -24,6 +24,7 @@ SPECS = {
 
 
 def validate_entry(name, entry):
+    """Validate supported provider roles, enabled state, and model policy."""
     if name not in SPECS:
         raise ValueError('No supported execution adapter for ' + name)
     if type(entry.get('enabled', True)) is not bool:
@@ -35,6 +36,7 @@ def validate_entry(name, entry):
 
 
 def model_arguments(name, entry):
+    """Build supported model arguments and require explicit fallback for unverified choices."""
     policy = entry.get('model_policy', 'MANUAL' if entry.get('model') else 'INHERIT')
     if not isinstance(policy, str):
         raise ValueError('Model policy must be text')
@@ -62,6 +64,7 @@ def model_arguments(name, entry):
 
 
 def common_candidates(name):
+    """Find documented CLI executable candidates without reading credentials."""
     spec = SPECS[name]
     found = shutil.which(spec['client'])
     values = [[found]] if found else []
@@ -111,9 +114,11 @@ def execution_command(name, entry):
     raise FileNotFoundError(name + ' CLI is not installed/on PATH')
 
 
-def discover_agent(name, entry, check=False, runner=None):
+def discover_agent(name, entry, check=False, runner=None, rpc_runner=None):
+    """Resolve a CLI and optionally run safe official version, protocol, and auth probes."""
     if name not in SPECS:
         raise ValueError('Unknown agent')
+    default_runner = runner is None
     runner = runner or probe
     result = {'agent': name, 'state': 'NOT_INSTALLED', 'enabled': entry.get('enabled', True),
               'roles': entry.get('roles', []), 'version': 'Unknown', 'authentication': 'UNKNOWN',
@@ -143,26 +148,31 @@ def discover_agent(name, entry, check=False, runner=None):
         if match:
             result['model_catalog'] = re.findall(r'[\"\x27]([\w./:-]+)[\"\x27]', match[1])
         auth = SPECS[name]['auth']
-        if auth:
+        authenticated = None
+        if name == 'copilot':
+            from .authentication import copilot_status
+            # Custom probe runners must also explicitly mock the SDK RPC boundary.
+            if rpc_runner is not None or default_runner:
+                authenticated = (rpc_runner or copilot_status)(resolved)
+        elif auth:
             code, text = runner(resolved + auth)
             if name == 'claude':
                 try:
-                    authenticated = json.loads(text).get('loggedIn') is True
+                    value = json.loads(text).get('loggedIn')
+                    if type(value) is bool and code in (0, 1):
+                        authenticated = value if code == 0 else False if value is False else None
                 except (ValueError, AttributeError):
-                    authenticated = False
-                    result['state'] = 'UNKNOWN'
-            else:
+                    pass
+            elif code in (0, 1):
                 authenticated = code == 0
-            if authenticated:
-                result['authentication'] = 'AUTHENTICATED'
-                result['state'] = 'READY' if result['adapter_protocol_detected'] else 'AUTHENTICATED'
-            elif code == 1:
-                result['authentication'] = 'NOT_AUTHENTICATED'
-            else:
-                result['state'] = 'UNKNOWN'
+        if authenticated is True:
+            result['authentication'] = 'AUTHENTICATED'
+            result['state'] = 'READY' if result['adapter_protocol_detected'] else 'AUTHENTICATED'
+        elif authenticated is False:
+            result['authentication'] = 'NOT_AUTHENTICATED'
         else:
             result['state'] = 'UNKNOWN'
-            result['reason'] = 'No verified noninteractive auth-status probe; no model call made'
+            result['reason'] = 'Authentication could not be verified without a model call; an existing login may still be active'
     except (OSError, ValueError, subprocess.SubprocessError):
         result.update(state='UNAVAILABLE', reason='Non-generative status probe failed or timed out')
     return result
@@ -184,8 +194,11 @@ def record_live_success(home, name, entry):
 
 
 def discover(config, check=False, runner=None, home=None):
+    """Collect provider status and apply bounded auth, readiness, and cooldown evidence."""
     rows = [discover_agent(name, config['providers'].get(name, {}), check, runner) for name in SPECS]
     if home is not None:
+        from .authentication import apply_status
+        rows = apply_status(rows, home, check)
         from .confirmations import apply
         rows = apply(rows, home)
         from .confirmations import fingerprint
@@ -213,11 +226,12 @@ def discover(config, check=False, runner=None, home=None):
             cooldown = health.get(row['agent'], {})
             if cooldown.get('until', 0) > time.time():
                 row.update(state='UNAVAILABLE', cooldown_until=cooldown['until'],
-                           reason='Đang chờ ' + cooldown['reason'].split(':', 1)[0])
+                           reason='Waiting for ' + cooldown['reason'].split(':', 1)[0])
     return rows
 
 
 def model_info(config, name, home):
+    """Read configured model policy and provider-reported catalog without paid model probes."""
     if name not in SPECS:
         raise ValueError('Unknown agent')
     entry = config['providers'][name]

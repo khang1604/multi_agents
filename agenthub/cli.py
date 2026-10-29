@@ -15,6 +15,7 @@ from .service import start_daemon, stop_daemon, daemon_status
 
 
 def output(value, json_mode=False):
+    """Render bounded text or explicit JSON output for a CLI command."""
     from .presentation import compact
     print(json.dumps(value, ensure_ascii=False, indent=2) if json_mode else compact(value))
 
@@ -22,27 +23,27 @@ def output(value, json_mode=False):
 def agent_reason(row):
     """Explain only verified discovery facts, without echoing probe output."""
     if not row.get('enabled'):
-        return 'Đã tắt trong cấu hình'
+        return 'Disabled in configuration'
     state = row.get('state', 'UNKNOWN')
     if state == 'NOT_INSTALLED':
         if row.get('agent') == 'copilot':
-            return 'Thiếu CLI; Chat vẫn dùng'
-        return 'Có IDE, thiếu CLI/PATH' if row.get('ide_installed') else 'Không tìm thấy CLI/PATH'
+            return 'CLI missing; Chat available'
+        return 'IDE found; CLI/PATH missing' if row.get('ide_installed') else 'CLI/PATH not found'
     if state == 'UNAVAILABLE':
         if row.get('cooldown_until'):
-            return row.get('reason', 'Đang cooldown')
-        return 'Lỗi kiểm tra phiên bản' if row.get('reason') == 'Version probe failed' else 'CLI lỗi hoặc timeout'
+            return row.get('reason', 'In cooldown')
+        return 'Version check failed' if row.get('reason') == 'Version probe failed' else 'CLI failed or timed out'
     if row.get('authentication') == 'NOT_AUTHENTICATED':
-        return 'Chưa đăng nhập'
+        return 'Not authenticated'
     if row.get('operator_confirmed'):
-        return 'Bạn xác nhận chạy AI'
+        return 'Operator confirmed AI use'
     if state == 'READY':
-        return 'Đã xác minh chạy AI' if row.get('live_verified') else 'Sẵn sàng; chưa thử AI'
+        return 'AI execution verified' if row.get('live_verified') else 'Ready; AI not tested'
     if state == 'AUTHENTICATED':
-        return 'Chưa nhận diện adapter'
+        return 'Adapter not detected'
     if state == 'INSTALLED' and row.get('authentication') == 'UNKNOWN' and not row.get('reason'):
-        return 'Chưa kiểm tra: --check'
-    return 'Chưa xác minh đăng nhập'
+        return 'Not checked: --check'
+    return 'Authentication unverified'
 
 
 def agent_table(rows):
@@ -50,6 +51,7 @@ def agent_table(rows):
     widths = (11, 3, 15, 7, 7, 26)
 
     def line(values):
+        """Format one sanitized bounded row of the agent status table."""
         cells = []
         for value, width in zip(values, widths):
             clean = ''.join(c for c in str(value) if c.isprintable())
@@ -58,7 +60,7 @@ def agent_table(rows):
             cells.append(clean.ljust(width))
         return '  '.join(cells).rstrip()
 
-    result = [line(('AGENT CLI', 'ON', 'STATE', 'AUTH', 'POLICY', 'LÝ DO'))]
+    result = [line(('AGENT CLI', 'ON', 'STATE', 'AUTH', 'POLICY', 'REASON'))]
     for row in rows:
         auth = {'AUTHENTICATED': 'OK', 'NOT_AUTHENTICATED': 'NO'}.get(row.get('authentication'), 'UNKNOWN')
         result.append(line((row['agent'], 'ON' if row.get('enabled') else 'OFF',
@@ -67,6 +69,7 @@ def agent_table(rows):
 
 
 def parser():
+    """Build the command parser and supported operator options."""
     p = argparse.ArgumentParser(prog='ma', description='Multi Agents — terminal-first local orchestrator')
     p.add_argument('--home', default=str(application_home()), help='External local data home')
     sub = p.add_subparsers(dest='command')
@@ -82,13 +85,15 @@ def parser():
     init.add_argument('--register-only', action='store_true', help='Register/refresh without interactive scope or baseline test; no ready claim')
     init.add_argument('--prepare', action='store_true', help='Confirm scope and run baseline checks; requires interactive terminal')
     setup = sub.add_parser('setup')
-    setup.add_argument('view', nargs='?', choices=['interface'], help='Open Quick Setup in VS Code')
+    setup.add_argument('view', nargs='?', choices=['interface'], help='Optional VS Code extension UI only; omit for cross-client terminal setup')
     setup.add_argument('--check', dest='check', action='store_true', default=True, help='Official version/auth probes (default); no model calls')
     setup.add_argument('--offline', dest='check', action='store_false', help='Resolve paths only; leave version/auth unknown')
     setup.add_argument('--advanced', action='store_true', help='Detailed model/provider/role setup')
     setup.add_argument('--plan', action='store_true', help='Read one-page setup choices without writes')
     setup.add_argument('--apply-options', help='Explicit JSON selections from the local setup UI')
-    setup.add_argument('--login', choices=SPECS, help='Open official interactive login; never reads auth files')
+    authentication = setup.add_mutually_exclusive_group()
+    authentication.add_argument('--login', choices=SPECS, help='Open official interactive login; never reads auth files')
+    authentication.add_argument('--logout', choices=SPECS, help='Open official sign-out; never edits auth files')
     setup.add_argument('--json', action='store_true')
     doc = sub.add_parser('doctor'); doc.add_argument('--offline', action='store_true')
     agents = sub.add_parser('agents'); ac = agents.add_subparsers(dest='action', required=True)
@@ -150,6 +155,7 @@ def parser():
     migrate = sub.add_parser('migrate'); migrate.add_argument('--from', dest='source', required=True)
     demo = sub.add_parser('demo'); demo.add_argument('--simulate', action='store_true', required=True)
     def json_options(current):
+        """Add explicit JSON-output options to applicable subcommands."""
         children = [action for action in current._actions if isinstance(action, argparse._SubParsersAction)]
         if children:
             for action in children:
@@ -163,6 +169,7 @@ def parser():
 
 
 def current_project(hub):
+    """Resolve the registered project matching the current approved Git directory."""
     from .discovery import repository_root
     import os
     root = repository_root(Path.cwd())
@@ -173,6 +180,7 @@ def current_project(hub):
 
 
 def latest(hub, workflow_id=None):
+    """Select the latest saved workflow for the requested project."""
     if workflow_id:
         return workflow_id
     try:
@@ -186,6 +194,7 @@ def latest(hub, workflow_id=None):
 
 
 def menu(hub):
+    """Run the interactive terminal menu without using a model for supervision."""
     while True:
         print('\nMULTI AGENTS — 1 Agents  2 Initialize here  3 Dispatch  4 Status  5 Configure  6 Setup  0 Exit')
         choice = input('Choose: ').strip()
@@ -206,8 +215,10 @@ def menu(hub):
 
 
 def main(argv=None):
+    """Dispatch parsed CLI requests through the shared Hub and settings services."""
     args = parser().parse_args(argv)
     def show(value):
+        """Render a command result using the selected output mode."""
         output(value, getattr(args, 'json', False))
     if args.command == 'migrate':
         from .lifecycle import migrate_legacy
@@ -239,7 +250,7 @@ def main(argv=None):
     elif command == 'setup':
         from . import quick_setup
         if args.view:
-            if args.plan or args.apply_options or args.login or args.advanced or not args.check:
+            if args.plan or args.apply_options or args.login or args.logout or args.advanced or not args.check:
                 raise ValueError('Use ma setup interface without terminal setup options')
             show(quick_setup.open_interface(hub))
         elif args.plan:
@@ -253,6 +264,10 @@ def main(argv=None):
             if not sys.stdin.isatty():
                 raise ValueError('Open official login in an interactive terminal')
             show(quick_setup.login(hub, args.login))
+        elif args.logout:
+            if not sys.stdin.isatty():
+                raise ValueError('Open official sign-out in an interactive terminal')
+            show(quick_setup.logout(hub, args.logout))
         elif args.advanced:
             from .wizard import run
             run(hub, args.check)
@@ -355,6 +370,7 @@ def main(argv=None):
                 show(saved)
             else:
                 def short(value, limit=180):
+                    """Return a compact representation for the current command view."""
                     return ''.join(char if char.isprintable() else ' ' for char in value)[:limit]
                 rejected = [x['approach_id'] + ': ' + x['reason'] for x in saved.get('attempts', []) if x['status'] == 'rejected']
                 print('Handoff v2 | revision ' + str(saved.get('revision', 0)) + '\nNext: ' + short(saved.get('next_action', {}).get('action', 'Not recorded')) + '\nRejected (' + str(len(rejected)) + '): ' + short('; '.join(rejected) or 'None recorded'))

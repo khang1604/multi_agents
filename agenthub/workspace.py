@@ -11,6 +11,7 @@ EXCLUDED = {'.git', '.env', 'node_modules', '.venv', 'venv', '__pycache__', 'dat
 
 
 def git(path, *args, check=True):
+    """Run a bounded Git command with platform-safe long-path handling."""
     result = subprocess.run(['git', '-c', 'core.quotepath=false', '-c', 'core.longpaths=true', '-C', str(path), *args], capture_output=True,
                             encoding='utf-8', errors='replace', timeout=40)
     if check and result.returncode:
@@ -19,6 +20,7 @@ def git(path, *args, check=True):
 
 
 def prepare(store, workflow, project):
+    """Create and register an isolated workflow worktree from a clean approved baseline."""
     if workflow['workspace']:
         path = Path(workflow['workspace'])
         if not path.exists():
@@ -42,6 +44,7 @@ def prepare(store, workflow, project):
 
 
 def files(root):
+    """Index allowed source filenames without reading excluded data."""
     root = Path(root)
     output = git(root, 'ls-files', '-c', '-o', '--exclude-standard')
     for name in sorted(set(output.splitlines())):
@@ -58,6 +61,7 @@ def files(root):
 
 
 def fingerprint(root, store=None):
+    """Hash allowed source state for verification and stale-change detection."""
     digest = hashlib.sha256()
     for name, path in files(root):
         digest.update(name.encode())
@@ -71,6 +75,7 @@ def fingerprint(root, store=None):
 
 
 def diff(root):
+    """Read a workflow patch from its worktree or verified archived delivery."""
     parts = [git(root, 'diff', 'HEAD', '--no-ext-diff')]
     for name, path in files(root):
         tracked = git(root, 'ls-files', '--error-unmatch', '--', name, check=False)
@@ -80,6 +85,7 @@ def diff(root):
 
 
 def read_text(path, limit):
+    """Read a bounded approved text file for workflow context."""
     try:
         with path.open('r', encoding='utf-8') as file:
             text = file.read(limit + 1)
@@ -91,6 +97,7 @@ def read_text(path, limit):
 
 
 def cached_file(store, path, include_content=True):
+    """Reuse unchanged source hashes/excerpts from the bounded context cache."""
     path = Path(path).resolve()
     stat = path.stat()
     cached = store.one('SELECT * FROM file_cache WHERE path=?', (str(path),))
@@ -119,6 +126,7 @@ def cached_file(store, path, include_content=True):
 
 
 def validate_handoff(handoff):
+    """Validate handoff file paths, ranges, and supplied source hashes."""
     if not isinstance(handoff, dict) or set(handoff) - {'summary','files','decisions','base_commit'}:
         raise ValueError('handoff accepts summary, files, decisions and optional base_commit')
     if not isinstance(handoff.get('summary', ''), str) or len(handoff.get('summary','')) > 8000:
@@ -147,6 +155,7 @@ def validate_handoff(handoff):
 
 
 def build_pack(store, workflow, project, role, limit, security=None):
+    """Assemble required intent, scope, decisions, excerpts, and evidence within the context budget."""
     root = Path(workflow['workspace'])
     memory = store.all('SELECT name,content FROM memories WHERE project_id=? ORDER BY updated DESC LIMIT 4', (project['id'],))
     handoff = json.loads(workflow.get('handoff') or '{}')
@@ -227,6 +236,7 @@ def build_pack(store, workflow, project, role, limit, security=None):
         candidates = list(dict.fromkeys(document_names + candidates))
         terms = {s for s in re.findall(r'[\w]+', workflow['objective'].lower()) if len(s)>2}
         def score(name):
+            """Rank approved candidate files by relevance to the current objective."""
             name_score = sum(5 for term in terms if term in name.lower())
             return name_score + (4 if name in document_names else 0) + (3 if name.startswith(('app/','src/')) else 0)
         chosen = list(explicit) if explicit else sorted(candidates,key=lambda n:(-score(n),n))[:4]
@@ -264,10 +274,12 @@ def build_pack(store, workflow, project, role, limit, security=None):
 
 
 def context(store, workflow, project, role, limit):
+    """Build the role-specific Context Pack for the next provider attempt."""
     return build_pack(store, workflow, project, role, limit)['text']
 
 
 def encode_shared_context(shared, fresh):
+    """Encode required shared context without silently truncating mandatory evidence."""
     if not fresh:
         return 'Saved project context is stale; use current selected excerpts, not old analysis.'
     return json.dumps({'version': shared.get('version'), 'languages': shared.get('languages', []),

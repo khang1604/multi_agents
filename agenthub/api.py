@@ -10,10 +10,12 @@ from .service import start_daemon, daemon_status
 
 class Hub:
     def __init__(self, home):
+        """Initialize Hub state and its configured dependencies."""
         self.store = Store(home)
         self.config = load(home)
 
     def start(self, project, objective, request_key, max_calls=None, mode='auto', launch=True, prepared_plan=None, handoff=None):
+        """Validate a task request and create or recover its durable workflow without duplicate dispatch."""
         import os
         from .project_context import is_removed
         row = self.store.project(project)
@@ -57,6 +59,7 @@ class Hub:
         return self.status(flow['id'])
 
     def status(self, workflow_id):
+        """Read persisted workflow details, evidence, and current execution state."""
         flow = self.store.workflow(workflow_id)
         for key in ['plan', 'review', 'verification', 'handoff']:
             flow[key] = json.loads(flow[key])
@@ -73,6 +76,7 @@ class Hub:
         return flow
 
     def brief(self, workflow_id):
+        """Build a bounded workflow summary for CLI or chat clients."""
         state = self.status(workflow_id)
         result = {key:state[key] for key in ['id','status','phase','leader','complexity','calls','max_calls','next_run','workspace','delivery','workspace_retired','daemon','acceptance']}
         result['summary'] = state['summary'][:1500]
@@ -106,6 +110,7 @@ class Hub:
         return result
 
     def retry(self, workflow_id, extra_calls=0, launch=True, not_before=0, request_key=None):
+        """Resume an eligible workflow while preserving idempotency, checkpoints, and call caps."""
         import math
         if type(not_before) not in (int, float) or not math.isfinite(not_before) or not_before < 0:
             raise ValueError('not_before must be a finite nonnegative Unix timestamp')
@@ -151,6 +156,7 @@ class Hub:
         return self.status(workflow_id)
 
     def recover(self, project):
+        """Recover project memory and unfinished workflow state for handoff."""
         row = self.store.project(project)
         memories=self.store.all('SELECT name,content,updated FROM memories WHERE project_id=? ORDER BY updated DESC LIMIT 8',(row['id'],))
         for memory in memories:

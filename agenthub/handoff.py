@@ -5,10 +5,12 @@ import time
 
 
 def strings():
+    """Build a bounded string-array schema used by handoff reports."""
     return {'type': 'array', 'items': {'type': 'string'}}
 
 
 def object_schema(properties):
+    """Build a strict object schema for structured agent handoffs."""
     return {'type': 'object', 'properties': properties, 'required': list(properties),
             'additionalProperties': False}
 
@@ -28,7 +30,9 @@ DELTA_SCHEMA = object_schema({
 
 
 def validate_delta(value):
+    """Validate a reported handoff update before merging it into saved state."""
     def validate(node, schema):
+        """Validate the supplied handoff payload and reject unsupported fields or unsafe references."""
         kind = schema['type']
         if kind == 'object':
             if not isinstance(node, dict) or set(node) != set(schema['required']):
@@ -67,12 +71,14 @@ def validate_delta(value):
 def next_role(state):
     # Older snapshots lacked the explicit target role. Recover the normal phase
     # boundary, never treat planner tool restrictions as the worker's permissions.
+    """Determine which role receives the next saved handoff action."""
     return state.get('next_action', {}).get('role') or {
         'plan': 'implement', 'implement': 'verify', 'verify': 'review', 'review': 'implement'
     }.get(state.get('last_observation', {}).get('phase'))
 
 
 def guard(handoff, current_fingerprint=None, role=None):
+    """Reject unsafe or previously rejected approaches without valid operator authorization."""
     state = handoff.get('checkpoint', {})
     target_role = next_role(state)
     if role and target_role and role != target_role:

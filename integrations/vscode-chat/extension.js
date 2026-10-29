@@ -8,10 +8,12 @@ const {createHandler} = require('./handler');
 const {registerReview} = require('./review');
 const {registerSetup, registerSetupUri} = require('./setup');
 
+/** Register the local Hub participant, setup controls, and review commands for this extension. */
 function activate(context) {
   const runtime = JSON.parse(fs.readFileSync(path.join(context.extensionPath, 'runtime.json'), 'utf8'));
   const connections = new Set();
   context.subscriptions.push({dispose() { for (const client of connections) client.dispose(); connections.clear(); }});
+  /** Open and initialize one pinned Hub stdio connection and track it for disposal. */
   const connect = async () => {
     const client = new Transport(runtime);
     connections.add(client);
@@ -20,6 +22,7 @@ function activate(context) {
     try { await client.initialize(); return client; }
     catch (error) { client.dispose(); throw error; }
   };
+  /** Execute a pinned operator CLI action with bounded output and timeout. */
   const run = (args, cwd) => new Promise((resolve, reject) => {
     // This path belongs to the UI participant, never to an AI-callable MCP tool.
     const prefix = runtime.args.slice(0, runtime.args.indexOf('mcp'));
@@ -30,7 +33,7 @@ function activate(context) {
   registerSetup(vscode, context, runtime, run);
   registerSetupUri(vscode, context);
   if (!vscode.chat || typeof vscode.chat.createChatParticipant !== 'function') {
-    vscode.window.showErrorMessage('IDE này chưa hỗ trợ Chat Participant API của VS Code; @hub chưa khả dụng.');
+    vscode.window.showErrorMessage('This IDE does not yet support the VS Code Chat Participant API; @hub is unavailable.');
     return;
   }
   const handler = createHandler(vscode, connect, undefined, run);

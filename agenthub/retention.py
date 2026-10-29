@@ -15,16 +15,19 @@ TEMP_PARTS = {'__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache', 'nod
 
 
 def git_bytes(root, *args):
+    """Read bounded binary Git output for an owned workflow archive."""
     result = subprocess.run(['git','-C',str(root),*args],capture_output=True,timeout=60)
     if result.returncode: raise ValueError(result.stderr.decode('utf-8',errors='replace'))
     return result.stdout
 
 
 def git_names(root, *args):
+    """Read Git path lists without losing filename boundaries."""
     return [value.decode('utf-8') for value in git_bytes(root,*args).split(b'\0') if value]
 
 
 def owned_workspace(store, flow):
+    """Validate that a worktree belongs to the expected Hub workflow."""
     if not flow.get('workspace'): return None
     root = store.home / 'workspaces'
     path = Path(flow['workspace'])
@@ -34,6 +37,7 @@ def owned_workspace(store, flow):
 
 
 def archive_completed(store, flow, policy):
+    """Verify completed code, export an integrity-checked delivery, then clean only its owned worktree."""
     if flow['status'] != 'completed': return {'skipped':'not completed'}
     path = owned_workspace(store,flow)
     if path is None or not path.exists(): return {'delivery':flow.get('delivery'),'retired':True}
@@ -108,6 +112,7 @@ def archive_completed(store, flow, policy):
 
 
 def sweep(store, config):
+    """Apply retention limits while preserving active work and unverified code."""
     policy = config['retention']
     if not policy.get('enabled'): return {'disabled':True}
     result = {'archived':[],'retained':[],'old_log_folders_removed':0,'cache_entries_evicted':0,'histories_compacted':0}

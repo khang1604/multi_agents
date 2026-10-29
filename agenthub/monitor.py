@@ -5,6 +5,7 @@ from .presentation import brief, text
 
 
 def render(state):
+    """Render a bounded progress view from actual persisted workflow evidence."""
     lines = ['Workflow: ' + state['id'] + '   Project: ' + state.get('project_id', 'Unknown'),
              'State: ' + state['status'] + ' / ' + state['phase'],
              'Task: ' + text(state.get('objective', '')),

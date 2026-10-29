@@ -8,6 +8,7 @@ import subprocess
 
 
 def repository_root(cwd):
+    """Resolve the current Git root without initializing a repository."""
     result = subprocess.run(['git', '-C', str(cwd), 'rev-parse', '--show-toplevel'],
                             capture_output=True, encoding='utf-8', errors='replace', timeout=20)
     if result.returncode:
@@ -16,6 +17,7 @@ def repository_root(cwd):
 
 
 def detect_checks(root, include_untracked=False):
+    """Infer a single candidate verifier from filenames without executing project commands."""
     listing = ['--cached', '--others', '--exclude-standard'] if include_untracked else []
     result = subprocess.run(['git', '-c', 'core.fsmonitor=false', '-C', str(root), 'ls-files', '-z', *listing],
                             capture_output=True, encoding='utf-8', errors='replace', timeout=20, check=True)
@@ -65,6 +67,7 @@ def detect_checks(root, include_untracked=False):
 
 
 def identify(hub, cwd, name=None, verify=None):
+    """Register or recover the current repository without overwriting existing project settings."""
     root = repository_root(cwd)
     for project in hub.store.all('SELECT * FROM projects'):
         if os.path.normcase(str(Path(project['path']).resolve())) == os.path.normcase(str(root)):

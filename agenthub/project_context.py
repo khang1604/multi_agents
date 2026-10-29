@@ -16,6 +16,7 @@ MANIFESTS = {'package.json', 'pyproject.toml', 'requirements.txt', 'Cargo.toml',
 
 
 def outside_repository(home, root):
+    """Require application metadata to remain outside registered source repositories."""
     if Path(home).resolve().is_relative_to(Path(root).resolve()):
         raise ValueError('ma data home must be outside the project repository')
 
@@ -47,6 +48,7 @@ def validate_wrappers(root, commands):
 
 
 def initialize(hub, cwd, name=None, verify=None, replace_verify=False):
+    """Register or refresh approved project metadata without writing into its source."""
     root = repository_root(cwd)
     outside_repository(hub.store.home, root)
     existing = next((p for p in hub.store.all('SELECT * FROM projects')
@@ -103,6 +105,7 @@ def initialize(hub, cwd, name=None, verify=None, replace_verify=False):
 
 
 def refresh(hub, project, detection='existing commands; not executed'):
+    """Update versioned project context and hashes from approved source."""
     root = Path(project['path'])
     outside_repository(hub.store.home, root)
     manifest, excerpts, languages, dependencies, frameworks = [], {}, set(), [], set()
@@ -164,6 +167,7 @@ def refresh(hub, project, detection='existing commands; not executed'):
 
 
 def get_context(hub, project):
+    """Read saved context and report whether source evidence is stale."""
     row = hub.store.project(project)
     path = project_settings_path(hub.store.home, row['id']).parent / 'context/project.json'
     if not path.exists():
@@ -176,6 +180,7 @@ def get_context(hub, project):
 
 
 def unregister(hub, project):
+    """Mark a project removed while retaining source and historical workflow data."""
     ensure_idle(hub.store)
     row = hub.store.project(project)
     path = project_settings_path(hub.store.home, row['id']).parent / 'removed.json'
@@ -184,5 +189,6 @@ def unregister(hub, project):
 
 
 def is_removed(home, project_id):
+    """Check the external project-removal marker."""
     path = project_settings_path(home, project_id).parent / 'removed.json'
     return path.exists() and json.loads(path.read_text(encoding='utf-8')).get('removed') is True

@@ -6,6 +6,7 @@ from .api import Hub
 
 
 def tool(name, description, props, required):
+    """Build a strict MCP tool definition and argument schema."""
     return {'name': name, 'description': description, 'inputSchema': {
         'type': 'object', 'properties': props, 'required': required, 'additionalProperties': False}}
 
@@ -49,6 +50,7 @@ TOOLS += [
 
 
 def serve(home, client='unknown'):
+    """Serve local stdio JSON-RPC requests through the shared Hub without host-model calls."""
     hub = Hub(home)
     for line in sys.stdin:
         request = None

@@ -3,6 +3,7 @@ const path = require('node:path');
 const {randomUUID} = require('node:crypto');
 const {selectProject} = require('./handler');
 
+/** Register read-only delivery previews and explicit acceptance commands. */
 function registerReview(api, context, connect, run) {
   const texts = new Map();
   let viewed;
@@ -12,6 +13,7 @@ function registerReview(api, context, connect, run) {
       return texts.get(uri.toString());
     }
   }));
+  /** Load verified review data for the selected project and reject unsafe file paths. */
   async function load(args) {
     if (!api.workspace.isTrusted) throw new Error('Trust workspace before reviewing changes.');
     if (!args || typeof args.workflowId !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(args.workflowId))
@@ -27,11 +29,13 @@ function registerReview(api, context, connect, run) {
       throw new Error('Invalid preview files.');
     return {project, value};
   }
+  /** Let the operator choose a delivery file for review or acceptance. */
   async function choose(value, remaining = false) {
     return api.window.showQuickPick(value.files.filter(f => !remaining || !f.accepted).map(file => ({
-      label: file.path, description: file.accepted ? 'Đã Accept' : file.kind, file
-    })), {placeHolder: remaining ? 'Chọn file muốn Accept' : 'Chọn file để xem diff: bản cũ bên trái, bản mới bên phải'});
+      label: file.path, description: file.accepted ? 'Accepted' : file.kind, file
+    })), {placeHolder: remaining ? 'Select a file to accept' : 'Select a file to view its diff: original on the left, updated on the right'});
   }
+  /** Register a UI command with bounded error reporting. */
   function command(id, fn) {
     context.subscriptions.push(api.commands.registerCommand(id, async args => {
       try { return await fn(args); }
@@ -60,15 +64,15 @@ function registerReview(api, context, connect, run) {
         if (!file) file = (await choose(loaded.value, true))?.file;
         if (!file) return;
       }
-      if (loaded.value.acceptance.status === 'accepted') { api.window.showInformationMessage('Các thay đổi đã được Accept.'); return; }
-      const title = single ? 'Accept file' : 'Accept tất cả';
-      const message = single ? 'Áp dụng ' + file.path + ' vào project?' : 'Áp dụng tất cả file còn lại của ' + args.workflowId + '?';
+      if (loaded.value.acceptance.status === 'accepted') { api.window.showInformationMessage('Changes have already been accepted.'); return; }
+      const title = single ? 'Accept file' : 'Accept all';
+      const message = single ? 'Apply ' + file.path + ' to the project?' : 'Apply all remaining files from ' + args.workflowId + '?';
       if (await api.window.showWarningMessage(message, {modal: true}, title) !== title) return;
       const command = ['accept', args.workflowId, '--project', loaded.project.id, '--json'];
       if (single) command.push('--file', file.path);
       const result = JSON.parse(await run(command, loaded.project.path));
-      api.window.showInformationMessage(result.status === 'accepted' ? 'Đã Accept tất cả thay đổi.'
-        : 'Đã Accept file. Còn ' + result.remaining_files.length + ' file chưa áp dụng; project có thể cần các file đó để chạy.');
+      api.window.showInformationMessage(result.status === 'accepted' ? 'All changes accepted.'
+        : 'File accepted. There are ' + result.remaining_files.length + ' files still unapplied; the project may need them to run.');
     });
   }
 }

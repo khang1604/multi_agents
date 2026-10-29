@@ -14,6 +14,7 @@ from .store import Store
 
 
 def wake(home):
+    """Start only due or recoverable queued work without granting calls or running a model directly."""
     store = Store(home)
     if daemon_status(home) == 'running':
         return {'status': 'running', 'ai_calls': 0}
@@ -24,6 +25,7 @@ def wake(home):
 
 
 def install(home, apply=False, runner=None):
+    """Explicitly install an owned Windows queue watchdog with limited user privileges."""
     if os.name != 'nt':
         return {'status': 'not installed; run ma start using your Linux user service', 'ai_calls': 0}
     home = Path(home).resolve()

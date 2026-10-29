@@ -31,16 +31,17 @@ def probe_worker(config, provider, worktree, runner=None):
         # Never echo provider output: it can contain private paths or credentials.
         diagnostic = (result.stdout or '') + '\n' + (result.stderr or '')
         if 'os error 32' in diagnostic.lower():
-            reason = 'File runtime đang bị khóa (Windows error 32). '
+            reason = 'A runtime file is locked (Windows error 32). '
         else:
-            reason = 'Chạy codex doctor --summary để chẩn đoán. '
-        raise ValueError('Codex Windows sandbox chưa chạy được (probe không gọi AI). '
-                         + reason + 'Nếu CLI cũ xung đột desktop, cập nhật Codex CLI chính thức rồi chạy ma init lại. '
-                         'Hub giữ nguyên sandbox; chưa gọi model.')
+            reason = 'Run codex doctor --summary for diagnostics. '
+        raise ValueError('Codex Windows sandbox is not working yet (probe makes no AI calls). '
+                         + reason + 'If an older CLI conflicts with the desktop app, update the official Codex CLI, then run ma init again. '
+                         'Hub preserves the sandbox; no model has been called.')
     return {'status': 'OK', 'ai_calls': 0}
 
 
 def execution_environment(home, project_id):
+    """Read only allowed project SDK directory variables from external metadata."""
     path = project_settings_path(home, project_id).parent / 'environment.json'
     if not path.exists():
         return {}
@@ -54,19 +55,20 @@ def execution_environment(home, project_id):
 def attest(hub, root, ask=input, write=print):
     """A human input gate BEFORE reading source for interactive initialization."""
     write('Source: ' + str(root))
-    answer = ask('Cho phép source này, chỉ dữ liệu giả, không gọi API ứng dụng? [y/N]: ').strip().lower()
+    answer = ask('Approve this source, synthetic data only, and no application API calls? [y/N]: ').strip().lower()
     if answer not in {'y', 'yes'}:
-        raise ValueError('Chưa xác nhận source/synthetic/no-API; chưa đọc context hoặc gọi AI')
+        raise ValueError('Source/synthetic/no-API scope not confirmed; no context read or AI calls made')
     # This is a project-scoped attestation, not a global security policy update.
     return {'source': str(root), 'synthetic_data_only': True, 'application_apis': [],
             'confirmation_source': 'operator', 'confirmed_at': time.time()}
 
 
 def prepare(hub, project, scope=None, write=print):
+    """Verify project prerequisites and baseline checks in an owned worktree before AI calls."""
     folder = project_settings_path(hub.store.home, project['id']).parent
     active = hub.store.one("SELECT id FROM workflows WHERE project_id=? AND status IN ('queued','running','waiting','recovering') LIMIT 1", (project['id'],))
     if active:
-        raise ValueError('Project có workflow đang giữ checkpoint: ' + active['id'] + '; xem @hub /status trước')
+        raise ValueError('This project has a workflow holding a checkpoint: ' + active['id'] + '; check @hub /status first')
     if scope is not None:
         if (scope.get('source') != project['path'] or scope.get('synthetic_data_only') is not True
                 or scope.get('application_apis') != [] or scope.get('confirmation_source') != 'operator'):
@@ -76,7 +78,7 @@ def prepare(hub, project, scope=None, write=print):
     preflight(config, bool(project['network']))
     commands = json.loads(project['verify'])
     if not commands:
-        raise ValueError('Chưa tìm được verifier duy nhất; ma init --verify-command EXECUTABLE ARGS')
+        raise ValueError('No unique verifier found; use ma init --verify-command EXECUTABLE ARGS')
     from .project_context import validate_wrappers
     validate_wrappers(Path(project['path']), commands)
     sdk = {}
@@ -92,11 +94,11 @@ def prepare(hub, project, scope=None, write=print):
     from .policy import choose
     worker = choose(config, hub.store, 'implement', config['worker_priority'])
     if not worker:
-        raise ValueError('Chưa có coding CLI khả dụng hoặc đang cooldown; kiểm tra ma agents list --check')
+        raise ValueError('No coding CLI available, or it is in cooldown; run ma agents list --check')
     source = Path(project['path'])
     commit = ws.git(source, 'rev-parse', 'HEAD')
     if ws.git(source, 'status', '--porcelain'):
-        raise ValueError('Source chưa sạch; commit/stash phần bạn muốn dùng trước. Init không tự commit file của bạn.')
+        raise ValueError('Source has uncommitted changes; commit/stash the changes you want to use first. Init does not commit your files automatically.')
     # A dedicated baseline worktree avoids builds modifying the user's checkout.
     with FileLock(folder / 'readiness.lock'):
         worktree = folder / 'readiness' / ('baseline-' + commit[:12])
@@ -118,7 +120,7 @@ def prepare(hub, project, scope=None, write=print):
         run.mkdir()
         checks = []
         for index, command in enumerate(commands):
-            write('Kiểm tra ' + str(index + 1) + '/' + str(len(commands)) + '...')
+            write('Checking ' + str(index + 1) + '/' + str(len(commands)) + '...')
             args = resolve_command([sys.executable if arg == '{python}' else arg for arg in command])
             output = run / (str(index) + '.log')
             with output.open('wb') as log:
@@ -148,12 +150,13 @@ def prepare(hub, project, scope=None, write=print):
                  'chat_bridge_configured': (hub.store.home / 'integrations/vscode-chat.json').is_file()}
         atomic_json(folder / 'readiness.json', value)
         if not passed:
-            raise ValueError('Baseline verifier chưa pass; chưa gọi AI. Log: ' + str(run) +
-                             '. Nếu Gradle offline thiếu dependency, chuẩn bị cache từ repository được phép rồi chạy ma init lại.')
+            raise ValueError('Baseline verifier has not passed; no AI calls made. Log: ' + str(run) +
+                             '. If offline Gradle dependencies are missing, prepare the cache from an approved repository, then run ma init again.')
     return value
 
 
 def initialize_interactive(hub, path, name=None, verify=None, replace_verify=False, ask=input, write=print):
+    """Collect project-scoped authorization and initialize baseline readiness without self-attestation."""
     from .discovery import repository_root
     from .project_context import initialize
     root = repository_root(path)
@@ -173,7 +176,7 @@ def initialize_interactive(hub, path, name=None, verify=None, replace_verify=Fal
         _, detected = detect_checks(root, include_untracked=True)
         if not detected:
             raise
-        write('Sửa verifier Gradle có đường dẫn không tồn tại; giữ backup lệnh cũ.')
+        write('Repairing a Gradle verifier with a missing path; keeping a backup of the previous command.')
         result = initialize(hub, root, name, detected, replace_verify=True)
     result['readiness'] = prepare(hub, result['project'], scope, write)
     result['verification_executed'] = True

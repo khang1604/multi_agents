@@ -38,11 +38,13 @@ TERMINAL = ('completed', 'blocked', 'cancelled', 'needs_review')
 
 
 def encode(value):
+    """Serialize stored structured values as JSON."""
     return json.dumps(value, ensure_ascii=False)
 
 
 class Store:
     def __init__(self, home):
+        """Initialize Store state and its configured dependencies."""
         self.home = Path(home).resolve()
         self.home.mkdir(parents=True, exist_ok=True)
         self.db_path = self.home / 'hub.sqlite3'
@@ -59,6 +61,7 @@ class Store:
 
     @contextmanager
     def connection(self):
+        """Open a scoped SQLite connection and close it after the operation."""
         db = sqlite3.connect(self.db_path, timeout=20)
         db.row_factory = sqlite3.Row
         db.execute('PRAGMA journal_mode=WAL')
@@ -73,27 +76,32 @@ class Store:
             db.close()
 
     def one(self, sql, params=()):
+        """Read one SQLite result as a mapping."""
         with self.connection() as db:
             row = db.execute(sql, params).fetchone()
             return dict(row) if row else None
 
     def all(self, sql, params=()):
+        """Read matching SQLite results as mappings."""
         with self.connection() as db:
             return [dict(r) for r in db.execute(sql, params).fetchall()]
 
     def workflow(self, workflow_id):
+        """Resolve one persisted workflow or report that it does not exist."""
         item = self.one('SELECT * FROM workflows WHERE id=?', (workflow_id,))
         if not item:
             raise ValueError('Unknown workflow')
         return item
 
     def project(self, project):
+        """Resolve a registered project by ID or name."""
         row = self.one('SELECT * FROM projects WHERE id=? OR name=?', (project, project))
         if not row:
             raise ValueError('Unknown project; register it first with project-add')
         return row
 
     def add_project(self, name, path, verify, context_paths, network=False, allow_unverified=False):
+        """Register project metadata and verification commands without editing source."""
         path = Path(path).resolve()
         if not path.is_dir():
             raise ValueError('Project directory does not exist')
@@ -116,6 +124,7 @@ class Store:
         return self.project(project_id)
 
     def create(self, project, objective, request_key, complexity, max_calls, max_repairs):
+        """Create or recover an idempotent durable workflow request."""
         project = self.project(project)
         if not isinstance(objective, str) or not objective.strip() or len(objective) > 16000:
             raise ValueError('Objective must contain 1–16000 characters')
@@ -144,10 +153,12 @@ class Store:
         return self.workflow(workflow_id)
 
     def _event(self, db, workflow_id, kind, data):
+        """Insert an event using the current SQLite transaction."""
         db.execute('INSERT INTO events(workflow_id,kind,data,created) VALUES(?,?,?,?)',
                    (workflow_id, kind, encode(data), time.time()))
 
     def update(self, workflow_id, expected_generation=None, **fields):
+        """Persist workflow changes and updated timestamps."""
         allowed = {'status','phase','leader','generation','complexity','calls','max_calls','repairs',
                    'next_run','workspace','base_commit','delivery','plan','review','handoff','verification','summary','error'}
         if set(fields) - allowed:
@@ -164,15 +175,18 @@ class Store:
             return db.execute(sql, params).rowcount == 1
 
     def event(self, workflow_id, kind, data):
+        """Append workflow evidence to the event log."""
         with self.connection() as db:
             self._event(db, workflow_id, kind, data)
 
     def health(self, provider, until, reason):
+        """Persist provider cooldown state independently of task blockers."""
         with self.connection() as db:
             db.execute('INSERT INTO health VALUES(?,?,?) ON CONFLICT(provider) DO UPDATE SET until=excluded.until,reason=excluded.reason',
                        (provider, until, reason))
 
     def remember(self, project_id, name, content):
+        """Save bounded project decisions/checkpoints for later recovery."""
         if len(content) > 30000 or len(name) > 100:
             raise ValueError('Memory is too large; summarize it first')
         with self.connection() as db:
@@ -180,6 +194,7 @@ class Store:
                        (project_id, name, content, time.time()))
 
     def cancel(self, workflow_id):
+        """Cancel work and advance its generation so late results cannot overwrite it."""
         with self.connection() as db:
             db.execute("UPDATE workflows SET status='cancelled',generation=generation+1,updated=? WHERE id=? AND status != 'completed'",
                        (time.time(), workflow_id))

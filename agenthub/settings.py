@@ -11,6 +11,7 @@ from .platforms import FileLock
 
 
 def application_home():
+    """Resolve the external per-user V2 application home."""
     if os.environ.get('AGENT_HUB_HOME'):
         return Path(os.environ['AGENT_HUB_HOME']).expanduser().resolve()
     if os.name == 'nt':
@@ -21,6 +22,7 @@ def application_home():
 
 
 def atomic_json(path, value, backup=True):
+    """Write JSON atomically with optional backups and symlink protection."""
     path = Path(path)
     if path.is_symlink():
         raise ValueError('Refusing a symlink settings file')
@@ -40,11 +42,13 @@ def atomic_json(path, value, backup=True):
 
 
 def ensure_idle(store):
+    """Reject global configuration/auth changes while a workflow is active."""
     if store.one("SELECT id FROM workflows WHERE status IN ('queued','running','waiting','recovering') LIMIT 1"):
         raise ValueError('Configuration is locked while a workflow is active; stop or finish it first')
 
 
 def project_settings_path(home, project_id):
+    """Resolve an external project-settings path without allowing traversal."""
     if not project_id or not all(c.isalnum() or c in '-_' for c in project_id):
         raise ValueError('Invalid local project id')
     root = Path(home).resolve()
@@ -55,6 +59,7 @@ def project_settings_path(home, project_id):
 
 
 def effective_config(config, home, project_id):
+    """Merge validated project overrides while preserving global security and disabled providers."""
     result = deepcopy(config)
     path = project_settings_path(home, project_id)
     if path.exists():
@@ -86,6 +91,7 @@ def effective_config(config, home, project_id):
 
 
 def update_provider(hub, name, changes, project=None):
+    """Apply validated provider/model changes under the settings lock with backups."""
     from .registry import validate_entry
     if name not in hub.config['providers']:
         raise ValueError('Unknown agent: ' + name)

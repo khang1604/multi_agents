@@ -2,11 +2,12 @@
 import re
 import time
 
-RISK = re.compile(r'auth|login|password|security|payment|migration|database|schema|permission|encrypt|deploy|đăng nhập|bảo mật|thanh toán|phân quyền|cơ sở dữ liệu', re.I)
-TRIVIAL = re.compile(r'typo|spelling|chính tả|readme|documentation|tài liệu', re.I)
+RISK = re.compile(r'auth|login|password|security|payment|migration|database|schema|permission|encrypt|deploy|\u0111\u0103ng nh\u1eadp|b\u1ea3o m\u1eadt|thanh to\xe1n|ph\xe2n quy\u1ec1n|c\u01a1 s\u1edf d\u1eef li\u1ec7u', re.I)
+TRIVIAL = re.compile(r'typo|spelling|ch\xednh t\u1ea3|readme|documentation|t\xe0i li\u1ec7u', re.I)
 
 
 def classify(objective):
+    """Choose task complexity using local rules without a model call."""
     if RISK.search(objective) or len(objective) > 2400:
         return 'complex'
     if TRIVIAL.search(objective) and len(objective) < 240:
@@ -15,6 +16,7 @@ def classify(objective):
 
 
 def failure(text):
+    """Classify provider diagnostics into model, permission, auth, quota, transient, or result errors."""
     text = text.lower()
     if any(t in text for t in ['model_not_found', 'model not found', 'invalid model', 'unsupported model', 'model unavailable', 'model is not available']):
         return 'model'
@@ -57,6 +59,7 @@ def reset_time(text, now=None):
 
 
 def choose(config, store, role, priority, excluded=(), now=None):
+    """Choose the first enabled eligible provider for a role outside its cooldown."""
     from .platforms import resolve_command
     now = time.time() if now is None else now
     health = {r['provider']: r for r in store.all('SELECT * FROM health')}

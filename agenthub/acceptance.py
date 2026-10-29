@@ -10,6 +10,7 @@ from . import workspace as ws
 
 
 def mode(store, project, enabled=None):
+    """Read or explicitly change automatic acceptance for one registered project."""
     import os
     if enabled is not None and os.environ.get('MULTI_AGENTS_WORKER'):
         raise ValueError('Workers cannot change acceptance preferences')
@@ -23,11 +24,13 @@ def mode(store, project, enabled=None):
 
 
 def state(store, workflow_id):
+    """Read persisted acceptance progress for a completed workflow."""
     path = store.home / 'acceptance' / (workflow_id + '.json')
     return json.loads(path.read_text()) if path.exists() else {'status': 'pending'}
 
 
 def target_path(root, name):
+    """Resolve an allowed delivery path without escaping the source repository."""
     rel = Path(name)
     target = root / rel
     sensitive = (rel.suffix.lower() in {'.pem', '.key', '.p12', '.pfx', '.sqlite', '.sqlite3', '.db', '.dump', '.bak'}
@@ -42,6 +45,7 @@ def target_path(root, name):
 
 
 def load_changes(store, flow):
+    """Load verified delivery changes and their original baseline for preview or acceptance."""
     if flow['status'] != 'completed' or not flow.get('delivery'):
         raise ValueError('Only completed, verified changes can be accepted')
     root = Path(store.project(flow['project_id'])['path'])
@@ -115,6 +119,7 @@ def preview(store, workflow_id):
 
 
 def accept(store, workflow_id, automatic=False, files=None):
+    """Apply selected verified delivery files while rejecting conflicts and retaining crash checkpoints."""
     import os
     if os.environ.get('MULTI_AGENTS_WORKER'):
         raise ValueError('Workers cannot accept their own changes')

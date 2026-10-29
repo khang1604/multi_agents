@@ -2,11 +2,13 @@
 
 
 def text(value, limit=180):
+    """Sanitize and bound one value for plain-text presentation."""
     clean = ' '.join(''.join(c if c.isprintable() else ' ' for c in str(value)).split())
     return clean if len(clean) <= limit else clean[:limit - 3] + '...'
 
 
 def brief(value):
+    """Summarize a nested result without dumping full source or histories."""
     if value is None:
         return '-'
     if isinstance(value, bool):
@@ -25,6 +27,7 @@ def brief(value):
 
 
 def command_line(command):
+    """Render an argument array for display without executing it."""
     import os
     import shlex
     import subprocess
@@ -34,6 +37,7 @@ def command_line(command):
 
 
 def compact(value):
+    """Build a short human-readable CLI result from structured state."""
     if isinstance(value, list):
         lines = [brief(row) for row in value[-8:]]
         if len(value) > 8:

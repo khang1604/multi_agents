@@ -7,10 +7,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def default_home():
+    """Resolve the legacy data home without migrating existing configuration."""
     return Path(os.environ.get('AGENT_HUB_HOME', ROOT / 'data')).resolve()
 
 
 def defaults():
+    """Build the default provider, budget, security, and retention configuration."""
     return {
         'schema_version': 1,
         'security': {'require_isolation': False, 'isolated_test_environment': False,
@@ -44,6 +46,7 @@ def defaults():
 
 
 def load(home):
+    """Load existing configuration or create defaults and validate bounded settings."""
     path = Path(home) / 'config.json'
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)

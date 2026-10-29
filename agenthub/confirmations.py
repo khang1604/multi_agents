@@ -9,6 +9,7 @@ from .platforms import FileLock
 from .settings import atomic_json, ensure_idle
 
 def fingerprint(row):
+    """Hash command, executable metadata, and model policy to bind readiness evidence."""
     command = row.get('command', [])
     executable = Path(command[0]) if command else None
     stat = executable.stat() if executable and executable.is_file() else None
@@ -18,6 +19,7 @@ def fingerprint(row):
 
 
 def read(home):
+    """Read Hub-owned operator readiness reports while rejecting symlinks."""
     path = Path(home) / 'agent-confirmations.json'
     if path.is_symlink():
         raise ValueError('Refusing symlink operator confirmations')
@@ -28,6 +30,7 @@ def read(home):
 
 
 def apply(rows, home, now=None):
+    """Apply valid operator reports without claiming independently verified authentication."""
     records = read(home)
     now = time.time() if now is None else now
     for row in rows:
@@ -57,6 +60,7 @@ def apply(rows, home, now=None):
 
 
 def confirm(hub, name, worked=False, revoke=False, runner=None):
+    """Record or revoke an explicit operator report after checking CLI and protocol prerequisites."""
     from .registry import SPECS, discover_agent
     if name not in SPECS:
         raise ValueError('Unknown agent')

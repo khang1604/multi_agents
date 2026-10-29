@@ -16,11 +16,13 @@ from .handoff import checkpoint, guard
 
 class Engine:
     def __init__(self, store, config, invoker=None):
+        """Initialize Engine state and its configured dependencies."""
         self.store, self.config = store, config
         self.invoker = invoker or Invoker(config)
         self.last_cleanup = time.time()
 
     def recover(self):
+        """Recover interrupted work while checking process ownership and generation safety."""
         for flow in self.store.all("SELECT * FROM workflows WHERE status IN ('running','recovering')"):
             attempts = self.store.all("SELECT * FROM attempts WHERE workflow_id=? AND status IN ('running','orphan')", (flow['id'],))
             alive = [a for a in attempts if pid_alive(a['pid'])]
@@ -58,6 +60,7 @@ class Engine:
             self.store.event(flow['id'], 'recovered', {'phase': flow['phase']})
 
     def tick(self):
+        """Advance eligible saved work by one bounded orchestration step."""
         self.recover()
         flow = self.store.one("SELECT * FROM workflows WHERE status IN ('queued','waiting') AND next_run <= ? ORDER BY updated LIMIT 1", (time.time(),))
         if not flow:
@@ -83,6 +86,7 @@ class Engine:
         return True
 
     def maybe_cleanup(self, force=False):
+        """Run due retention work without cleaning active workflows."""
         if not force and time.time()-self.last_cleanup < self.config['retention']['sweep_interval_seconds']:
             return
         from .retention import sweep
@@ -93,6 +97,7 @@ class Engine:
         self.last_cleanup = time.time()
 
     def _attempt(self, flow, provider, phase, folder):
+        """Reserve and prepare a provider attempt within the remaining call budget."""
         attempt_id = uuid.uuid4().hex[:12]
         with self.store.connection() as db:
             db.execute('''INSERT INTO attempts(id,workflow_id,provider,phase,generation,status,artifact,created)
@@ -101,10 +106,12 @@ class Engine:
         return attempt_id
 
     def _pid(self, attempt_id, pid):
+        """Persist the child process identity for crash-safe supervision."""
         with self.store.connection() as db:
             db.execute('UPDATE attempts SET pid=? WHERE id=?', (pid, attempt_id))
 
     def _finish_attempt(self, attempt_id, result, observation=None):
+        """Commit attempt results and handoff evidence with generation fencing."""
         with self.store.connection() as db:
             db.execute('BEGIN IMMEDIATE')
             attempt = dict(db.execute('SELECT * FROM attempts WHERE id=?', (attempt_id,)).fetchone())
@@ -120,11 +127,13 @@ class Engine:
                 record_live_success(self.store.home, attempt['provider'], self.config['providers'][attempt['provider']])
 
     def _cancelled(self, workflow_id, generation):
+        """Check whether cancellation or a newer generation invalidates the current attempt."""
         row = self.store.workflow(workflow_id)
         return (row['status'] == 'cancelled' or row['generation'] != generation or
                 (self.store.home / 'stop').exists())
 
     def _wait_or_block(self, flow, role, priority, excluded):
+        """Persist a retry wait or blocker when no eligible provider can proceed."""
         installed = []
         for provider in priority:
             entry = self.config['providers'].get(provider, {})
@@ -153,6 +162,7 @@ class Engine:
         self.store.event(flow['id'], 'routing_unavailable', {'role': role, 'installed': installed})
 
     def step(self, flow):
+        """Advance one workflow while recording failures and preserving its checkpoint."""
         from .settings import effective_config
         original = self.config
         self.config = effective_config(original, self.store.home, flow['project_id'])
@@ -171,6 +181,7 @@ class Engine:
                 self.invoker.config = original
 
     def _step(self, flow):
+        """Execute the current workflow phase using configured providers and verification."""
         budget_start = flow['created']
         wake = self.store.one("SELECT id,data FROM events WHERE workflow_id=? AND kind IN ('resume_scheduled','quota_wait_scheduled') ORDER BY id DESC LIMIT 1", (flow['id'],))
         if wake:
@@ -306,6 +317,7 @@ class Engine:
         self._apply_report(flow, project, role, provider, result.report, before)
 
     def _apply_report(self, flow, project, role, provider, report, before):
+        """Apply a validated phase report without accepting unsupported success claims."""
         generation, path = flow['generation'], flow['workspace']
         worker = self.store.one("SELECT provider FROM attempts WHERE workflow_id=? AND phase='implement' AND status='completed' ORDER BY created DESC LIMIT 1", (flow['id'],))
         if role == 'implement':
@@ -339,6 +351,7 @@ class Engine:
                 self.store.event(flow['id'], 'completed', {'reviews': len(reviews), 'calls': flow['calls']})
 
     def repair(self, flow, reason, review=None):
+        """Schedule an allowed implementation repair within existing repair/call limits."""
         fields = {'review': encode(review)} if review is not None else {}
         if flow['repairs'] >= flow['max_repairs']:
             self.store.update(flow['id'], status='needs_review', error=reason + '; repair budget exhausted', **fields)
@@ -347,6 +360,7 @@ class Engine:
         self.store.event(flow['id'], 'repair_requested', {'reason': reason})
 
     def verify(self, flow, project):
+        """Run configured verification commands and record independent evidence."""
         generation = flow['generation'] + 1
         if not self.store.update(flow['id'], flow['generation'], status='running', generation=generation):
             return
@@ -405,6 +419,7 @@ class Engine:
             self.store.update(flow['id'], generation, status='queued', phase='review', error='')
 
     def serve(self):
+        """Run the locked daemon loop and recover queued work without model polling."""
         with FileLock(self.store.home / 'daemon.lock'):
             (self.store.home / 'daemon.pid').write_text(str(os.getpid()),encoding='utf-8')
             self.recover()

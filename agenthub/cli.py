@@ -140,6 +140,9 @@ def parser():
             ap.add_argument('--extra-calls', type=int, default=0)
             ap.add_argument('--at', help='Resume at ISO time with timezone, e.g. 2026-10-25T13:20:17+07:00')
             ap.add_argument('--request-key', help='Deduplicate a scheduled retry and its call grant')
+            watch_group = ap.add_mutually_exclusive_group()
+            watch_group.add_argument('--watch', action='store_true', help='Follow the retried workflow')
+            watch_group.add_argument('--no-watch', action='store_true', help='Do not follow the retried workflow')
     for name in ('start', 'stop', 'restart'):
         sub.add_parser(name)
     wake = sub.add_parser('wake', help='Check due queue without AI; optionally install Windows user watchdog')
@@ -189,8 +192,11 @@ def latest(hub, workflow_id=None):
     try:
         row = hub.store.project(current_project(hub))
         result = hub.store.one('SELECT id FROM workflows WHERE project_id=? ORDER BY updated DESC LIMIT 1', (row['id'],))
+        if result:
+            return result['id']
     except ValueError:
-        result = hub.store.one('SELECT id FROM workflows ORDER BY updated DESC LIMIT 1')
+        pass
+    result = hub.store.one('SELECT id FROM workflows ORDER BY updated DESC LIMIT 1')
     if not result:
         raise ValueError('No workflow recorded yet')
     return result['id']
@@ -418,6 +424,11 @@ def main(argv=None):
         else: print(changes or 'No changes.')
     elif command == 'cancel': show(hub.store.cancel(latest(hub, args.workflow_id)))
     elif command == 'retry':
+        workflow_id = latest(hub, args.workflow_id)
+        flow = hub.store.workflow(workflow_id)
+        extra_calls = args.extra_calls
+        if extra_calls == 0 and flow['phase'] != 'verify' and flow['calls'] >= flow['max_calls']:
+            extra_calls = 3
         scheduled = 0
         if args.at:
             from datetime import datetime
@@ -425,8 +436,13 @@ def main(argv=None):
             if parsed.tzinfo is None:
                 raise ValueError('--at requires an explicit timezone')
             scheduled = parsed.timestamp()
-        show(hub.retry(latest(hub, args.workflow_id), args.extra_calls,
-                       not_before=scheduled, request_key=args.request_key))
+        result = hub.retry(workflow_id, extra_calls,
+                           not_before=scheduled, request_key=args.request_key)
+        should_watch = args.watch or (not getattr(args, 'no_watch', False) and sys.stdout.isatty() and not args.json and scheduled <= time.time())
+        if should_watch:
+            watch_workflow(hub, workflow_id, watch=True, json_mode=args.json)
+        else:
+            show(result)
     elif command == 'wake':
         from .wakeup import install, wake
         show(install(hub.store.home, apply=args.apply) if args.install else wake(hub.store.home))

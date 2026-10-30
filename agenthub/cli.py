@@ -126,6 +126,8 @@ def parser():
     model.add_argument('policy', choices=['INHERIT', 'AUTO', 'MANUAL']); model.add_argument('--model')
     model.add_argument('--fallback', choices=['INHERIT']); model.add_argument('--project')
     ac.add_parser('configure')
+    rst = ac.add_parser('reset', help='Clear cooldown and health errors for one or all agents')
+    rst.add_argument('agent', nargs='?', choices=SPECS)
     cfg = sub.add_parser('config'); cfg.add_argument('--allow-mcp-config', choices=['true', 'false'])
     cfg.add_argument('--default-client', choices=['antigravity', 'vscode', 'codex', 'copilot', 'claude', 'none'])
     project = sub.add_parser('projects'); pc = project.add_subparsers(dest='action', required=True)
@@ -419,6 +421,13 @@ def main(argv=None):
                 rows = json.loads(cache.read_text(encoding='utf-8'))
                 changes['model_catalog'] = next((r['model_catalog'] for r in rows if r['agent'] == args.agent), [])
             show(update_provider(hub, args.agent, changes, args.project))
+        elif args.action == 'reset':
+            with hub.store.connection() as db:
+                if args.agent:
+                    db.execute("UPDATE health SET until=0, reason='' WHERE provider=?", (args.agent,))
+                else:
+                    db.execute("UPDATE health SET until=0, reason=''")
+            show({'status': 'ok', 'message': f"Reset health status for {args.agent or 'all providers'}"})
     elif command == 'config':
         if args.allow_mcp_config is not None or args.default_client is not None:
             from .platforms import FileLock

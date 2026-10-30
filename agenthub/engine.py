@@ -200,7 +200,7 @@ class Engine:
                 pass
         health = {h['provider']: h for h in self.store.all('SELECT * FROM health')}
         cooldowns = [health[p]['until'] for p in installed if p in health and
-                     health[p]['reason'].startswith(('quota:', 'temporary:')) and health[p]['until'] > time.time()]
+                     health[p]['reason'].startswith(('quota:', 'temporary:', 'invalid_result:')) and health[p]['until'] > time.time()]
         if cooldowns:
             wake_at = min(cooldowns)
             self.store.update(flow['id'], status='waiting', next_run=min(cooldowns),
@@ -389,7 +389,7 @@ class Engine:
                 return
             until = reset_time(result.error) or time.time() + (
                 self.config['quota_cooldown_seconds'] if category == 'quota' else
-                self.config['temporary_cooldown_seconds'] if category == 'temporary' else 86400)
+                self.config['temporary_cooldown_seconds'] if category in {'temporary', 'invalid_result'} else 86400)
             self.store.health(provider, until, category + ': ' + result.error[-1000:])
             self.store.update(flow['id'], generation, status='queued', error=result.error[-6000:])
             self.store.event(flow['id'], 'agent_failed', {'provider': provider, 'role': role, 'category': category, 'cooldown_until': until})
@@ -430,7 +430,7 @@ class Engine:
                 next_reviewer = choose(self.config, self.store, 'review', priority, excluded=reviewed)
                 health = {h['provider']: h for h in self.store.all('SELECT * FROM health')}
                 cooling = any(p not in reviewed and p in health and
-                              health[p]['reason'].startswith(('quota:', 'temporary:')) and health[p]['until'] > time.time()
+                              health[p]['reason'].startswith(('quota:', 'temporary:', 'invalid_result:')) and health[p]['until'] > time.time()
                               for p in priority if self.config['providers'].get(p, {}).get('enabled'))
                 if next_reviewer or cooling:
                     self.store.update(flow['id'], generation, status='queued', phase='review', review=encode(review), error='')

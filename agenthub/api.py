@@ -48,6 +48,8 @@ class Hub:
         cap = policy['max_calls'] if max_calls is None else max_calls
         if not isinstance(cap, int) or not 1 <= cap <= 50:
             raise ValueError('max_calls must be 1–50')
+        with self.store.connection() as db:
+            db.execute("UPDATE health SET until=0, reason='' WHERE reason NOT LIKE 'quota:%'")
         flow = self.store.create(project, objective, request_key, level, cap, policy['max_repairs'])
         if handoff is not None and flow['calls'] == 0 and flow['handoff'] == '{}':
             self.store.update(flow['id'], handoff=encode(handoff))
@@ -142,8 +144,8 @@ class Hub:
                         if data.get('extra_calls') != extra_calls or data.get('not_before', 0) != not_before:
                             raise ValueError('Retry key was already used with different settings')
                         return self.status(workflow_id)
-            if current['status'] not in {'blocked', 'cancelled', 'needs_review'}:
-                raise ValueError('Only blocked/cancelled/needs_review workflows can be retried')
+            if current['status'] not in {'blocked', 'cancelled', 'needs_review', 'waiting'}:
+                raise ValueError('Only blocked/cancelled/needs_review/waiting workflows can be retried')
             active = db.execute("SELECT id FROM workflows WHERE project_id=? AND id != ? AND status IN ('queued','running','waiting','recovering')",
                                 (flow['project_id'], workflow_id)).fetchone()
             if active:

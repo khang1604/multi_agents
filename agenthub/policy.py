@@ -18,7 +18,7 @@ def classify(objective):
 def failure(text):
     """Classify provider diagnostics into model, permission, auth, quota, transient, or result errors."""
     text = text.lower()
-    if any(t in text for t in ['model_not_found', 'model not found', 'invalid model', 'unsupported model', 'model unavailable', 'model is not available']):
+    if any(t in text for t in ['model_not_found', 'model not found', 'invalid model', 'unsupported model', 'model unavailable', 'model is not available', 'not supported', 'is not supported']):
         return 'model'
     if any(t in text for t in ['bwrap:', 'permission denied', 'operation not permitted', 'blocked by policy', 'sandbox error']):
         return 'permissions'

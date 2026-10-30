@@ -72,6 +72,18 @@ ma "Build login form with client-side validation and write unit tests"
   `Apply 4 changed file(s) to project now? [Y/n]: `
 - Enter `y` to apply changes immediately to your project working tree!
 
+> [!IMPORTANT]
+> **Always commit before dispatching the next task!**
+> After accepting changes (`ma accept`), commit your code (`git commit -am "feat: description"`) before starting the next task. Multi Agents requires a clean Git baseline (`HEAD`) to branch isolated worktrees and guarantee uncommitted code is never overwritten.
+> 
+> **Standard workflow cycle:**
+> ```powershell
+> ma "Task 1: Add login form"
+> ma accept
+> git commit -am "feat: add login form"
+> ma "Task 2: Add forgot password"
+> ```
+
 ---
 
 ### Common CLI Commands
@@ -182,6 +194,18 @@ ma "Thêm form quên mật khẩu, kiểm tra hợp lệ email và viết bài t
 - Khi hoàn thành và vượt qua kiểm thử thành công, terminal sẽ hỏi:
   `Apply 4 changed file(s) to project now? [Y/n]: `
 - Gõ `y` (hoặc Enter) để áp dụng ngay code mới vào dự án của bạn!
+
+> [!IMPORTANT]
+> **Bắt buộc commit code trước khi giao việc tiếp theo!**
+> Sau khi nhận code (`ma accept`), hãy luôn commit thay đổi vào Git (`git commit -am "feat: mô tả"`) trước khi chạy yêu cầu kế tiếp. Multi Agents luôn dựa vào điểm mốc Git sạch (`HEAD`) để tạo worktree cách ly an toàn và đảm bảo không ghi đè lên các thay đổi dở dang của bạn.
+> 
+> **Chu trình làm việc chuẩn:**
+> ```powershell
+> ma "Task 1: Làm form đăng nhập"
+> ma accept
+> git commit -am "feat: add login form"
+> ma "Task 2: Thêm chức năng quên mật khẩu"
+> ```
 
 ---
 

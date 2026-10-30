@@ -315,7 +315,7 @@ class Engine:
         # call and keeps the review evidence intact.
         context_error = None
         while provider:
-            context_limit = min(self.config['max_context_chars'], 14000) if provider in {'antigravity','copilot'} else self.config['max_context_chars']
+            context_limit = min(self.config['max_context_chars'], 14000) if provider == 'copilot' else self.config['max_context_chars']
             context_limit = min(context_limit, context_capacity(provider, role))
             try:
                 pack = ws.build_pack(self.store, flow, project, role, context_limit,

@@ -203,7 +203,7 @@ def build_command(provider, entry, role, prompt, folder, network):
         if role == 'implement':
             settings = json.dumps({'permissions': {'allow': ['write_file(*)', 'edit_file(*)', 'read_file(*)']}})
             args += ['--settings', settings]
-        return args + ['-p', prompt, '--output-format', 'json'] + model + extras, None, None
+        return args + ['-p', '-', '--output-format', 'json'] + model + extras, prompt, None
     raise ValueError('Unknown provider')
 
 
@@ -260,7 +260,7 @@ def prompt_prefix(role):
 def context_capacity(provider, role):
     # Argument-based providers must reserve space for rules, instructions and schema.
     """Calculate available context after reserving instructions and report-schema space."""
-    if provider in {'antigravity', 'copilot'}:
+    if provider == 'copilot':
         return max(0, (18000 if os.name == 'nt' else 60000) - len(prompt_prefix(role)))
     return 2 ** 31
 

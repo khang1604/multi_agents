@@ -202,11 +202,12 @@ def latest(hub, workflow_id=None):
     return result['id']
 
 
-def watch_workflow(hub, workflow_id, watch=False, json_mode=False):
+def watch_workflow(hub, workflow_id, watch=False, json_mode=False, interactive_accept=False):
     """Render changed persisted state and the final answer without redispatching work."""
     from .monitor import ProgressView, render
     progress = ProgressView() if watch else None
     previous = None
+    state = None
     try:
         while True:
             state = hub.status(workflow_id)
@@ -220,8 +221,25 @@ def watch_workflow(hub, workflow_id, watch=False, json_mode=False):
                         print(message, flush=True)
                 previous = signature
             if not watch or state['status'] in {'completed', 'blocked', 'cancelled', 'needs_review'}:
-                return
+                break
             time.sleep(2)
+        if watch and not json_mode and state and state['status'] == 'completed' and interactive_accept and sys.stdin.isatty():
+            acceptance = state.get('acceptance', {})
+            if acceptance.get('status') != 'accepted':
+                changes = state.get('file_changes', {}).get('stats', [])
+                num_files = len(changes) if changes else 0
+                prompt_msg = f'\nApply {num_files} changed file(s) to project now? [Y/n]: ' if num_files else '\nApply changes to project now? [Y/n]: '
+                try:
+                    answer = input(prompt_msg).strip().lower()
+                    if answer in {'', 'y', 'yes'}:
+                        from .acceptance import accept
+                        result = accept(hub.store, workflow_id)
+                        applied = result.get('applied', [])
+                        print(f'Applied {len(applied)} file(s) to project successfully.')
+                    else:
+                        print(f'Changes retained. Run ma accept {workflow_id} when ready.')
+                except (EOFError, KeyboardInterrupt):
+                    pass
     except KeyboardInterrupt:
         print('Monitor closed; workflow continues independently.')
 
@@ -247,9 +265,35 @@ def menu(hub):
             print('Multi Agents:', error)
 
 
+def normalize_argv(argv):
+    """Prepend 'run' when a task objective is passed directly without a subcommand."""
+    tokens = list(sys.argv[1:] if argv is None else argv)
+    if not tokens:
+        return tokens
+    known = {'init', 'setup', 'doctor', 'agents', 'config', 'projects', 'context',
+             'run', 'accept', 'review', 'auto-accept', 'handoff', 'status', 'logs',
+             'diff', 'cancel', 'retry', 'start', 'stop', 'restart', 'wake', 'mcp',
+             'mcp-config', 'integrations', 'chat', 'install-command', 'uninstall',
+             'update', 'migrate', 'demo'}
+    idx = 0
+    while idx < len(tokens):
+        token = tokens[idx]
+        if token == '--home':
+            idx += 2
+            continue
+        if token.startswith('-'):
+            idx += 1
+            continue
+        if token not in known:
+            return tokens[:idx] + ['run'] + tokens[idx:]
+        break
+    return tokens
+
+
 def main(argv=None):
     """Dispatch parsed CLI requests through the shared Hub and settings services."""
-    args = parser().parse_args(argv)
+    norm_argv = normalize_argv(argv)
+    args = parser().parse_args(norm_argv)
     def show(value):
         """Render a command result using the selected output mode."""
         output(value, getattr(args, 'json', False))
@@ -360,14 +404,15 @@ def main(argv=None):
         else:
             project, objective = current_project(hub), ' '.join(args.request)
         flow = hub.start(project, objective, args.request_key or uuid.uuid4().hex, args.max_calls, args.mode, launch=not args.no_start)
-        if args.watch:
-            watch_workflow(hub, flow['id'], watch=True, json_mode=args.json)
+        should_watch = args.watch or (sys.stdout.isatty() and not getattr(args, 'json', False) and not args.no_start)
+        if should_watch:
+            watch_workflow(hub, flow['id'], watch=True, json_mode=args.json, interactive_accept=sys.stdin.isatty())
         else:
             show(flow)
     elif command == 'status':
         if not args.workflow_id and not hub.store.one('SELECT id FROM workflows LIMIT 1'):
             show({'daemon': daemon_status(hub.store.home), 'workflows': []}); return
-        watch_workflow(hub, latest(hub, args.workflow_id), args.watch, args.json)
+        watch_workflow(hub, latest(hub, args.workflow_id), args.watch, args.json, interactive_accept=sys.stdin.isatty())
     elif command in {'accept', 'review'}:
         from .acceptance import accept, preview
         workflow_id = latest(hub, args.workflow_id)
@@ -440,7 +485,7 @@ def main(argv=None):
                            not_before=scheduled, request_key=args.request_key)
         should_watch = args.watch or (not getattr(args, 'no_watch', False) and sys.stdout.isatty() and not args.json and scheduled <= time.time())
         if should_watch:
-            watch_workflow(hub, workflow_id, watch=True, json_mode=args.json)
+            watch_workflow(hub, workflow_id, watch=True, json_mode=args.json, interactive_accept=sys.stdin.isatty())
         else:
             show(result)
     elif command == 'wake':

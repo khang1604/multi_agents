@@ -1,4 +1,64 @@
 """Compact terminal views; structured data stays available through --json."""
+import os
+import sys
+
+_VT_INITIALIZED = False
+
+
+def use_color():
+    """Determine whether color output is supported and enabled."""
+    global _VT_INITIALIZED
+    if os.getenv('NO_COLOR') or os.getenv('TERM') == 'dumb':
+        return False
+    if os.getenv('FORCE_COLOR') == '1':
+        return True
+    if not sys.stdout.isatty():
+        return False
+    if os.name == 'nt' and not _VT_INITIALIZED:
+        try:
+            os.system('')
+            _VT_INITIALIZED = True
+        except OSError:
+            pass
+    return True
+
+
+def color(value, code, enabled=None):
+    """Wrap text in an ANSI color code if color output is enabled."""
+    active = use_color() if enabled is None else enabled
+    if not active:
+        return str(value)
+    return f'\033[{code}m{value}\033[0m'
+
+
+def green(value, enabled=None):
+    """Render green text for success or positive numbers."""
+    return color(value, '32', enabled)
+
+
+def red(value, enabled=None):
+    """Render red text for errors or negative numbers."""
+    return color(value, '31', enabled)
+
+
+def yellow(value, enabled=None):
+    """Render yellow text for warnings, waiting, or running states."""
+    return color(value, '33', enabled)
+
+
+def cyan(value, enabled=None):
+    """Render cyan text for identifiers, links, and phases."""
+    return color(value, '36', enabled)
+
+
+def dim(value, enabled=None):
+    """Render dim gray text for secondary timestamps and hints."""
+    return color(value, '90', enabled)
+
+
+def bold(value, enabled=None):
+    """Render bold text for section headers."""
+    return color(value, '1', enabled)
 
 
 def text(value, limit=180):

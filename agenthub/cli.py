@@ -13,6 +13,7 @@ from .settings import application_home, update_provider, effective_config, atomi
 from .registry import SPECS, discover
 from .project_context import initialize, get_context, unregister, is_removed
 from .service import start_daemon, stop_daemon, daemon_status
+from .presentation import green, red, yellow, cyan, dim, bold, use_color
 
 
 def output(value, json_mode=False):
@@ -61,11 +62,25 @@ def agent_table(rows):
             cells.append(clean.ljust(width))
         return '  '.join(cells).rstrip()
 
-    result = [line(('AGENT CLI', 'ON', 'STATE', 'AUTH', 'POLICY', 'REASON'))]
+    header = line(('AGENT CLI', 'ON', 'STATE', 'AUTH', 'POLICY', 'REASON'))
+    result = [bold(header)]
     for row in rows:
-        auth = {'AUTHENTICATED': 'OK', 'NOT_AUTHENTICATED': 'NO'}.get(row.get('authentication'), 'UNKNOWN')
-        result.append(line((row['agent'], 'ON' if row.get('enabled') else 'OFF',
-                            row.get('state', 'UNKNOWN'), auth, row.get('model_policy', 'INHERIT'), agent_reason(row))))
+        auth_val = {'AUTHENTICATED': 'OK', 'NOT_AUTHENTICATED': 'NO'}.get(row.get('authentication'), 'UNKNOWN')
+        plain_row = line((row['agent'], 'ON' if row.get('enabled') else 'OFF',
+                          row.get('state', 'UNKNOWN'), auth_val, row.get('model_policy', 'INHERIT'), agent_reason(row)))
+        if use_color():
+            agent_col = cyan(row['agent'].ljust(widths[0]))
+            on_val = ('ON' if row.get('enabled') else 'OFF').ljust(widths[1])
+            on_col = green(on_val) if row.get('enabled') else dim(on_val)
+            state_val = row.get('state', 'UNKNOWN').ljust(widths[2])
+            state_col = green(state_val) if row.get('state') == 'READY' else red(state_val) if row.get('state') == 'NOT_INSTALLED' else yellow(state_val)
+            auth_str = auth_val.ljust(widths[3])
+            auth_col = green(auth_str) if auth_val == 'OK' else red(auth_str) if auth_val == 'NO' else yellow(auth_str)
+            policy_col = row.get('model_policy', 'INHERIT').ljust(widths[4])
+            reason_col = dim(agent_reason(row).ljust(widths[5]))
+            result.append(f'{agent_col}  {on_col}  {state_col}  {auth_col}  {policy_col}  {reason_col}'.rstrip())
+        else:
+            result.append(plain_row)
     return '\n'.join(result)
 
 
@@ -232,16 +247,17 @@ def watch_workflow(hub, workflow_id, watch=False, json_mode=False, interactive_a
             if acceptance.get('status') != 'accepted':
                 changes = state.get('file_changes', {}).get('stats', [])
                 num_files = len(changes) if changes else 0
-                prompt_msg = f'\nApply {num_files} changed file(s) to project now? [Y/n]: ' if num_files else '\nApply changes to project now? [Y/n]: '
+                raw_prompt = f'\nApply {num_files} changed file(s) to project now? [Y/n]: ' if num_files else '\nApply changes to project now? [Y/n]: '
+                prompt_msg = bold(yellow(raw_prompt))
                 try:
                     answer = input(prompt_msg).strip().lower()
                     if answer in {'', 'y', 'yes'}:
                         from .acceptance import accept
                         result = accept(hub.store, workflow_id)
                         applied = result.get('applied', [])
-                        print(f'Applied {len(applied)} file(s) to project successfully.')
+                        print(green(f'Applied {len(applied)} file(s) to project successfully.'))
                     else:
-                        print(f'Changes retained. Run ma accept {workflow_id} when ready.')
+                        print(dim(f'Changes retained. Run ma accept {workflow_id} when ready.'))
                 except (EOFError, KeyboardInterrupt):
                     pass
     except KeyboardInterrupt:
@@ -522,7 +538,7 @@ def main(argv=None):
         if args.json:
             show({'target': str(target), 'workspace': str(ws_path), 'opened': opened})
         else:
-            print(f'Opened: {target}')
+            print(green('Opened: ') + cyan(target))
     elif command == 'wake':
         from .wakeup import install, wake
         show(install(hub.store.home, apply=args.apply) if args.install else wake(hub.store.home))

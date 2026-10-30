@@ -1,7 +1,9 @@
 """V2 commands reuse the existing Hub, Store, Engine and stdio server."""
 import argparse
 import json
+import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import time
@@ -259,7 +261,12 @@ def watch_workflow(hub, workflow_id, watch=False, json_mode=False, interactive_a
             if acceptance.get('status') != 'accepted':
                 changes = state.get('file_changes', {}).get('stats', [])
                 num_files = len(changes) if changes else 0
-                raw_prompt = f'\nApply {num_files} changed file(s) to project now? [Y/n]: ' if num_files else '\nApply changes to project now? [Y/n]: '
+                objective = state.get('objective', '')
+                is_vn = bool(re.search(r'[àáảãạăắằẳẵặâấầẩẫậđèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵ]', objective, re.I))
+                if is_vn:
+                    raw_prompt = f'\nÁp dụng {num_files} file đã thay đổi vào dự án ngay bây giờ? [Y/n]: ' if num_files else '\nÁp dụng các thay đổi vào dự án ngay bây giờ? [Y/n]: '
+                else:
+                    raw_prompt = f'\nApply {num_files} changed file(s) to project now? [Y/n]: ' if num_files else '\nApply changes to project now? [Y/n]: '
                 prompt_msg = bold(yellow(raw_prompt))
                 try:
                     answer = input(prompt_msg).strip().lower()
@@ -273,9 +280,11 @@ def watch_workflow(hub, workflow_id, watch=False, json_mode=False, interactive_a
                         from .acceptance import accept
                         result = accept(hub.store, workflow_id)
                         applied = result.get('applied') or result.get('files', [])
-                        print(green(f'Applied {len(applied)} file(s) to project successfully.'))
+                        success_msg = f'Đã áp dụng {len(applied)} file vào dự án thành công.' if is_vn else f'Applied {len(applied)} file(s) to project successfully.'
+                        print(green(success_msg))
                     else:
-                        print(dim(f'Changes retained. Run ma accept {workflow_id} when ready.'))
+                        retain_msg = f'Đã giữ lại các thay đổi. Chạy "ma accept" khi bạn sẵn sàng.' if is_vn else f'Changes retained. Run ma accept {workflow_id} when ready.'
+                        print(dim(retain_msg))
                 except (EOFError, KeyboardInterrupt):
                     pass
     except KeyboardInterrupt:

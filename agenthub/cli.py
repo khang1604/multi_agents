@@ -468,18 +468,17 @@ def main(argv=None):
         flow = hub.store.workflow(workflow_id)
         if args.project and hub.store.project(args.project)['id'] != flow['project_id']:
             raise ValueError('Workflow belongs to another project')
-        if flow['status'] == 'needs_review':
+        if flow['status'] in {'needs_review', 'completed'}:
             evidence = json.loads(flow.get('verification') or '{}')
             passed = evidence.get('checks') and all(c.get('exit_code') == 0 for c in evidence['checks'])
             if passed:
+                if flow['status'] != 'completed':
+                    hub.store.update(workflow_id, status='completed')
+                    flow = hub.store.workflow(workflow_id)
                 from .retention import archive_completed
                 if not flow.get('delivery'):
                     archive_completed(hub.store, flow, hub.config['retention'])
-                hub.store.update(workflow_id, status='completed')
                 flow = hub.store.workflow(workflow_id)
-        elif flow['status'] == 'completed' and not flow.get('delivery'):
-            from .retention import archive_completed
-            archive_completed(hub.store, flow, hub.config['retention'])
         show(preview(hub.store, workflow_id) if command == 'review' else accept(hub.store, workflow_id, files=args.files))
     elif command == 'auto-accept':
         from .acceptance import mode

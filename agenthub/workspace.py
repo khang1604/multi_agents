@@ -43,17 +43,75 @@ def prepare(store, workflow, project):
     return str(path), commit
 
 
+def allowed_source_name(name):
+    """Check a relative source filename without opening sensitive or excluded paths."""
+    rel = Path(name)
+    return (bool(name) and not rel.is_absolute() and '..' not in rel.parts
+            and not any(part in EXCLUDED or part.startswith('.env') for part in rel.parts)
+            and rel.suffix.lower() not in {'.pem', '.key', '.p12', '.pfx', '.sqlite', '.sqlite3', '.db', '.dump', '.bak'}
+            and rel.name.lower() not in {'appsettings.json', 'appsettings.development.json', 'auth.json', 'credentials.json', 'secrets.json'}
+            and rel.stem.lower() not in {'secret', 'secrets', 'credentials', 'token', 'tokens'})
+
+
+def file_changes(root, limit=100):
+    """Record bounded per-file Git line counts, including safe untracked additions."""
+    root = Path(root).resolve()
+
+    def read_git(*args):
+        """Read NUL-delimited Git metadata without losing spaces, tabs or newlines in paths."""
+        result = subprocess.run(['git', '-c', 'core.longpaths=true', '-C', str(root), *args],
+                                capture_output=True, timeout=40)
+        if result.returncode:
+            raise ValueError('Could not collect changed-file statistics')
+        return result.stdout
+
+    tracked = read_git('diff', '--name-only', '--no-renames', 'HEAD', '-z').decode('utf-8').split('\0')
+    untracked = set(read_git('ls-files', '--others', '--exclude-standard', '-z').decode('utf-8').split('\0'))
+    names = []
+    for name in sorted(set(tracked) | untracked):
+        if not allowed_source_name(name):
+            continue
+        path = root / name
+        if (path.is_symlink() or not path.resolve().is_relative_to(root)
+                or any(parent.is_symlink() for parent in path.parents if parent != root)):
+            continue
+        names.append(name)
+    selected = names[:limit]
+    stats = {}
+    if selected:
+        raw = read_git('diff', '--numstat', '-z', '--no-renames', '--no-ext-diff', '--no-textconv', 'HEAD', '--', *selected)
+        for record in raw.decode('utf-8').split('\0'):
+            if not record:
+                continue
+            added, removed, name = record.split('\t', 2)
+            if name in selected:
+                binary = added == '-' or removed == '-'
+                stats[name] = {'path': name, 'added': None if binary else int(added),
+                               'removed': None if binary else int(removed), 'binary': binary}
+    for name in selected:
+        if name not in untracked:
+            continue
+        path = root / name
+        if not path.is_file():
+            continue
+        if path.stat().st_size > 2 * 1024 * 1024:
+            stats[name] = {'path': name, 'added': None, 'removed': None, 'unavailable': True}
+            continue
+        data = path.read_bytes()
+        binary = b'\0' in data
+        added = data.count(b'\n') + int(bool(data) and not data.endswith(b'\n'))
+        stats[name] = {'path': name, 'added': None if binary else added,
+                       'removed': None if binary else 0, 'binary': binary}
+    return {'files': selected, 'stats': [stats[name] for name in selected if name in stats], 'total_files': len(names)}
+
+
 def files(root):
     """Index allowed source filenames without reading excluded data."""
     root = Path(root)
     output = git(root, 'ls-files', '-c', '-o', '--exclude-standard')
     for name in sorted(set(output.splitlines())):
         rel = Path(name)
-        if rel.is_absolute() or any(part in EXCLUDED or part.startswith('.env') for part in rel.parts):
-            continue
-        if (rel.suffix.lower() in {'.pem', '.key', '.p12', '.pfx', '.sqlite', '.sqlite3', '.db', '.dump', '.bak'}
-                or rel.name.lower() in {'appsettings.json', 'appsettings.development.json', 'auth.json', 'credentials.json', 'secrets.json'}
-                or rel.stem.lower() in {'secret', 'secrets', 'credentials', 'token', 'tokens'}):
+        if not allowed_source_name(name):
             continue
         path = root / rel
         if path.is_file() and not path.is_symlink() and path.resolve().is_relative_to(root.resolve()):

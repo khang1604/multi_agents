@@ -249,10 +249,30 @@ class Engine:
                                  {'provider': provider, 'ai_calls_consumed': 0})
                 return
         guard(json.loads(flow['handoff']), ws.fingerprint(path, self.store), role)
-        context_limit = min(self.config['max_context_chars'], 14000) if provider in {'antigravity','copilot'} else self.config['max_context_chars']
         from .adapters import context_capacity
-        context_limit = min(context_limit, context_capacity(provider, role))
-        pack = ws.build_pack(self.store, flow, project, role, context_limit, security=self.config.get('security'))
+        # A small-context reviewer must not block a verified delivery when a later
+        # configured reviewer can receive the complete, required diff.  Packing is
+        # local and read-only, so trying the next eligible provider consumes no AI
+        # call and keeps the review evidence intact.
+        context_error = None
+        while provider:
+            context_limit = min(self.config['max_context_chars'], 14000) if provider in {'antigravity','copilot'} else self.config['max_context_chars']
+            context_limit = min(context_limit, context_capacity(provider, role))
+            try:
+                pack = ws.build_pack(self.store, flow, project, role, context_limit,
+                                     security=self.config.get('security'))
+                break
+            except ValueError as error:
+                if 'Context budget cannot fit' not in str(error):
+                    raise
+                context_error = str(error)
+                excluded.append(provider)
+                provider = choose(self.config, self.store, role, priority, excluded=excluded)
+        if not provider:
+            message = context_error or 'No eligible provider can receive the required context'
+            self.store.update(flow['id'], status='needs_review' if role == 'review' else 'blocked', error=message)
+            self.store.event(flow['id'], 'context_capacity_blocked', {'role': role, 'providers': excluded})
+            return
         generation = flow['generation'] + 1
         old_leader = flow['leader']
         leader = provider if role in {'plan', 'review'} else old_leader
@@ -321,9 +341,7 @@ class Engine:
         generation, path = flow['generation'], flow['workspace']
         worker = self.store.one("SELECT provider FROM attempts WHERE workflow_id=? AND phase='implement' AND status='completed' ORDER BY created DESC LIMIT 1", (flow['id'],))
         if role == 'implement':
-            changed = ws.git(path, 'diff', '--name-only', 'HEAD').splitlines()
-            changed += ws.git(path, 'ls-files', '--others', '--exclude-standard').splitlines()
-            self.store.event(flow['id'], 'files_changed', {'files': sorted(set(changed))[:100]})
+            self.store.event(flow['id'], 'files_changed', ws.file_changes(path))
         self.store.remember(project['id'], 'checkpoint', role + ': ' + report['summary'][:3500])
         if role == 'plan':
             complexity = 'complex' if report['complexity'] == 'complex' else flow['complexity']
@@ -414,7 +432,7 @@ class Engine:
             self.repair(flow, 'Verification failed; fix the recorded test output')
         elif self.config['auto'][flow['complexity']]['reviewers'] == 0:
             self.store.update(flow['id'], generation, status='completed', error='',
-                              summary='Small task completed; configured verification passed; AI review skipped by Auto')
+                              summary=flow.get('summary') or 'Small task completed; configured verification passed; AI review skipped by Auto')
         else:
             self.store.update(flow['id'], generation, status='queued', phase='review', error='')
 

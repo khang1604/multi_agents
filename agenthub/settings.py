@@ -118,4 +118,12 @@ def update_provider(hub, name, changes, project=None):
         backup = atomic_json(path, value)
         if not project:
             hub.config = value
-    return {'agent': name, 'scope': project or 'global', 'updated': changes, 'backup': backup}
+        # A manual model/policy choice is an explicit operator decision to try a
+        # different model.  Keep quota cooldowns for ordinary configuration edits,
+        # but clear a stale model/temporary provider cooldown so the new choice can
+        # be evaluated once.  The next failed attempt records a fresh cooldown.
+        reset_health = bool({'model_policy', 'model', 'model_fallback'} & set(changes))
+        if reset_health:
+            hub.store.health(name, 0, '')
+    return {'agent': name, 'scope': project or 'global', 'updated': changes, 'backup': backup,
+            'provider_cooldown_cleared': reset_health}

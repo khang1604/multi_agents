@@ -71,6 +71,18 @@ class Hub:
             event['data'] = json.loads(event['data'])
         from .acceptance import state
         flow['acceptance'] = state(self.store, workflow_id)
+        changes = self.store.one("SELECT data FROM events WHERE workflow_id=? AND kind='files_changed' ORDER BY id DESC LIMIT 1", (workflow_id,))
+        flow['file_changes'] = json.loads(changes['data']) if changes else {}
+        # Only validated, persisted report fields are displayed; never reopen artifacts.
+        flow['agent_response'] = {}
+        report_row = self.store.one("SELECT outcome FROM attempts WHERE workflow_id=? AND phase='implement' AND status='completed' ORDER BY created DESC LIMIT 1", (workflow_id,))
+        if report_row:
+            try:
+                report = json.loads(report_row['outcome'])
+                if isinstance(report, dict) and isinstance(report.get('summary'), str):
+                    flow['agent_response'] = {'summary': report['summary'][:4000]}
+            except (ValueError, TypeError):
+                pass
         flow['daemon'] = daemon_status(self.store.home)
         flow['workspace_retired'] = bool(flow.get('delivery') and not Path(flow.get('workspace') or '').exists())
         return flow

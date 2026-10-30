@@ -264,9 +264,19 @@ class Invoker:
                 time.sleep(0.25)
             stdout = read_tail(folder / 'stdout.log', 160000)
             stderr = read_tail(folder / 'stderr.log', 6000)
+            # Some Codex CLI versions emit their validated final message, then
+            # exit non-zero for a non-reporting transport condition.  The per-run
+            # result file/JSONL is fresh and still has to pass our schema, so use
+            # it when available instead of discarding a valid report solely due to
+            # that exit status.
+            try:
+                report, usage = extract_report(stdout, result_file)
+            except ValueError:
+                if process.returncode:
+                    return Result(error=stderr + '\n' + stdout[-6000:])
+                raise
             if process.returncode:
-                return Result(error=stderr + '\n' + stdout[-6000:])
-            report, usage = extract_report(stdout, result_file)
+                usage['provider_exit_code'] = process.returncode
             (folder / 'report.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
             return Result(report=report, usage=usage)
         except TaskBlocked as error:

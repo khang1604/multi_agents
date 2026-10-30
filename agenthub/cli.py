@@ -118,7 +118,10 @@ def parser():
     context = sub.add_parser('context'); context.add_argument('project', nargs='?')
     run = sub.add_parser('run'); run.add_argument('request', nargs='+', help='Objective, or PROJECT OBJECTIVE with --project omitted')
     run.add_argument('--project'); run.add_argument('--mode', choices=['auto', 'small', 'standard', 'complex'], default='auto')
-    run.add_argument('--max-calls', type=int); run.add_argument('--request-key'); run.add_argument('--no-start', action='store_true')
+    run.add_argument('--max-calls', type=int); run.add_argument('--request-key')
+    execution = run.add_mutually_exclusive_group()
+    execution.add_argument('--no-start', action='store_true')
+    execution.add_argument('--watch', action='store_true', help='Follow this workflow and display its final agent response; Ctrl+C stops watching only')
     accept = sub.add_parser('accept', help='Apply completed changes to project files; no commit')
     accept.add_argument('workflow_id', nargs='?')
     accept.add_argument('--file', action='append', dest='files', help='Accept only this delivery file; repeat for several files')
@@ -191,6 +194,30 @@ def latest(hub, workflow_id=None):
     if not result:
         raise ValueError('No workflow recorded yet')
     return result['id']
+
+
+def watch_workflow(hub, workflow_id, watch=False, json_mode=False):
+    """Render changed persisted state and the final answer without redispatching work."""
+    from .monitor import ProgressView, render
+    progress = ProgressView() if watch else None
+    previous = None
+    try:
+        while True:
+            state = hub.status(workflow_id)
+            signature = json.dumps(state, sort_keys=True, ensure_ascii=False)
+            if signature != previous:
+                if json_mode:
+                    output(state, True)
+                else:
+                    message = progress.render(state) if progress else render(state)
+                    if message:
+                        print(message, flush=True)
+                previous = signature
+            if not watch or state['status'] in {'completed', 'blocked', 'cancelled', 'needs_review'}:
+                return
+            time.sleep(2)
+    except KeyboardInterrupt:
+        print('Monitor closed; workflow continues independently.')
 
 
 def menu(hub):
@@ -326,25 +353,15 @@ def main(argv=None):
             project, objective = args.request
         else:
             project, objective = current_project(hub), ' '.join(args.request)
-        show(hub.start(project, objective, args.request_key or uuid.uuid4().hex, args.max_calls, args.mode, launch=not args.no_start))
+        flow = hub.start(project, objective, args.request_key or uuid.uuid4().hex, args.max_calls, args.mode, launch=not args.no_start)
+        if args.watch:
+            watch_workflow(hub, flow['id'], watch=True, json_mode=args.json)
+        else:
+            show(flow)
     elif command == 'status':
         if not args.workflow_id and not hub.store.one('SELECT id FROM workflows LIMIT 1'):
             show({'daemon': daemon_status(hub.store.home), 'workflows': []}); return
-        from .monitor import render
-        workflow_id = latest(hub, args.workflow_id)
-        previous = None
-        try:
-            while True:
-                state = hub.status(workflow_id)
-                signature = json.dumps(state, sort_keys=True, ensure_ascii=False)
-                if signature != previous:
-                    if args.json: show(state)
-                    else: print(render(state), flush=True)
-                    previous = signature
-                if not args.watch or state['status'] in {'completed', 'blocked', 'cancelled', 'needs_review'}: break
-                time.sleep(2)
-        except KeyboardInterrupt:
-            print('Monitor closed; workflow continues independently.')
+        watch_workflow(hub, latest(hub, args.workflow_id), args.watch, args.json)
     elif command in {'accept', 'review'}:
         from .acceptance import accept, preview
         workflow_id = latest(hub, args.workflow_id)

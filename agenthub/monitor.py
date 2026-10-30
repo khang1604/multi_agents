@@ -65,7 +65,11 @@ class ProgressView:
         """Return only newly observed user-facing milestones and the final response."""
         lines = []
         if not self.started:
-            lines = ['Workflow: ' + text(state['id']), 'Task: ' + text(state.get('objective', ''), 1000), '']
+            lines = ['Workflow: ' + text(state['id']), 'Task: ' + text(state.get('objective', ''), 1000)]
+            if state.get('workspace') and state['status'] not in {'completed', 'blocked', 'cancelled'}:
+                lines.append('Workspace: ' + text(state['workspace']))
+                lines.append("Tip: Run 'ma open' to inspect code live in your editor.")
+            lines.append('')
             self.started = True
 
         def format_time(timestamp):

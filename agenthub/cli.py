@@ -145,6 +145,9 @@ def parser():
             watch_group.add_argument('--no-watch', action='store_true', help='Do not follow the retried workflow')
     for name in ('start', 'stop', 'restart'):
         sub.add_parser(name)
+    op = sub.add_parser('open', help='Open the active workflow workspace or a specific file in your editor')
+    op.add_argument('file', nargs='?', help='Relative file path to open (e.g. public/app.js); omit to open workspace root')
+    op.add_argument('--workflow', dest='workflow_id', help='Workflow ID (defaults to latest for current project)')
     wake = sub.add_parser('wake', help='Check due queue without AI; optionally install Windows user watchdog')
     wake.add_argument('--install', action='store_true')
     wake.add_argument('--apply', action='store_true')
@@ -244,6 +247,26 @@ def watch_workflow(hub, workflow_id, watch=False, json_mode=False, interactive_a
         print('Monitor closed; workflow continues independently.')
 
 
+def open_in_editor(target):
+    """Open a file or directory in VS Code / IDE or default system viewer."""
+    import shutil
+    target_str = str(target)
+    code_bin = shutil.which('code') or shutil.which('cursor')
+    if code_bin:
+        try:
+            subprocess.Popen([code_bin, target_str], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return 'editor'
+        except OSError:
+            pass
+    if os.name == 'nt' and hasattr(os, 'startfile'):
+        try:
+            os.startfile(target_str)
+            return 'startfile'
+        except OSError:
+            pass
+    return 'path_only'
+
+
 def menu(hub):
     """Run the interactive terminal menu without using a model for supervision."""
     while True:
@@ -272,7 +295,7 @@ def normalize_argv(argv):
         return tokens
     known = {'init', 'setup', 'doctor', 'agents', 'config', 'projects', 'context',
              'run', 'accept', 'review', 'auto-accept', 'handoff', 'status', 'logs',
-             'diff', 'cancel', 'retry', 'start', 'stop', 'restart', 'wake', 'mcp',
+             'diff', 'cancel', 'retry', 'start', 'stop', 'restart', 'open', 'wake', 'mcp',
              'mcp-config', 'integrations', 'chat', 'install-command', 'uninstall',
              'update', 'migrate', 'demo'}
     idx = 0
@@ -488,6 +511,17 @@ def main(argv=None):
             watch_workflow(hub, workflow_id, watch=True, json_mode=args.json, interactive_accept=sys.stdin.isatty())
         else:
             show(result)
+    elif command == 'open':
+        workflow_id = latest(hub, args.workflow_id)
+        flow = hub.store.workflow(workflow_id)
+        project = hub.store.project(flow['project_id'])
+        ws_path = Path(flow['workspace']) if flow.get('workspace') and Path(flow['workspace']).exists() else Path(project['path'])
+        target = (ws_path / args.file).resolve() if args.file else ws_path.resolve()
+        opened = open_in_editor(target)
+        if args.json:
+            show({'target': str(target), 'workspace': str(ws_path), 'opened': opened})
+        else:
+            print(f'Opened: {target}')
     elif command == 'wake':
         from .wakeup import install, wake
         show(install(hub.store.home, apply=args.apply) if args.install else wake(hub.store.home))

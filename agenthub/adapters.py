@@ -201,7 +201,7 @@ def build_command(provider, entry, role, prompt, folder, network):
     if provider == 'antigravity':
         args = prefix + ['--disable-slash-commands']
         if role == 'implement':
-            settings = json.dumps({'permissions': {'allow': ['write_file(*)', 'edit_file(*)', 'read_file(*)']}})
+            settings = json.dumps({'permissions': {'allow': ['write_file(*)', 'edit_file(*)', 'read_file(*)', 'run_command(*)', 'command(*)']}})
             args += ['--settings', settings]
         return args + ['-p', prompt, '--output-format', 'json'] + model + extras, None, None
     raise ValueError('Unknown provider')

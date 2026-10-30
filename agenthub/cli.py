@@ -244,7 +244,17 @@ def watch_workflow(hub, workflow_id, watch=False, json_mode=False, interactive_a
             if not watch or state['status'] in {'completed', 'blocked', 'cancelled', 'needs_review'}:
                 break
             time.sleep(2)
-        if watch and not json_mode and state and state['status'] == 'completed' and interactive_accept and sys.stdin.isatty():
+        can_accept = False
+        if watch and not json_mode and state and interactive_accept and sys.stdin.isatty():
+            if state['status'] == 'completed':
+                can_accept = True
+            elif state['status'] == 'needs_review':
+                evidence = state.get('verification') or {}
+                if isinstance(evidence, str):
+                    try: evidence = json.loads(evidence)
+                    except (ValueError, TypeError): evidence = {}
+                can_accept = bool(evidence.get('checks') and all(c.get('exit_code') == 0 for c in evidence['checks']))
+        if can_accept:
             acceptance = state.get('acceptance', {})
             if acceptance.get('status') != 'accepted':
                 changes = state.get('file_changes', {}).get('stats', [])
@@ -254,9 +264,15 @@ def watch_workflow(hub, workflow_id, watch=False, json_mode=False, interactive_a
                 try:
                     answer = input(prompt_msg).strip().lower()
                     if answer in {'', 'y', 'yes'}:
+                        if state['status'] == 'needs_review':
+                            from .retention import archive_completed
+                            hub.store.update(workflow_id, status='completed')
+                            flow = hub.store.workflow(workflow_id)
+                            if not flow.get('delivery'):
+                                archive_completed(hub.store, flow, hub.config['retention'])
                         from .acceptance import accept
                         result = accept(hub.store, workflow_id)
-                        applied = result.get('applied', [])
+                        applied = result.get('applied') or result.get('files', [])
                         print(green(f'Applied {len(applied)} file(s) to project successfully.'))
                     else:
                         print(dim(f'Changes retained. Run ma accept {workflow_id} when ready.'))

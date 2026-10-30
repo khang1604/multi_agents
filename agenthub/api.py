@@ -66,7 +66,7 @@ class Hub:
         flow['attempts'] = self.store.all('SELECT id,provider,phase,generation,status,pid,artifact,created,ended,error,usage FROM attempts WHERE workflow_id=? ORDER BY created', (workflow_id,))
         for attempt in flow['attempts']:
             attempt['usage'] = json.loads(attempt['usage'])
-        flow['events'] = self.store.all('SELECT kind,data,created FROM events WHERE workflow_id=? ORDER BY id DESC LIMIT 20', (workflow_id,))
+        flow['events'] = self.store.all('SELECT id,kind,data,created FROM events WHERE workflow_id=? ORDER BY id DESC LIMIT 20', (workflow_id,))
         for event in flow['events']:
             event['data'] = json.loads(event['data'])
         from .acceptance import state

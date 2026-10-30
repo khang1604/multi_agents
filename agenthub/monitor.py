@@ -67,13 +67,27 @@ class ProgressView:
         if not self.started:
             lines = ['Workflow: ' + text(state['id']), 'Task: ' + text(state.get('objective', ''), 1000), '']
             self.started = True
-        timestamp = time.strftime('%H:%M:%S', time.localtime(state['updated']))
 
-        def milestone(message):
+        def format_time(timestamp):
+            """Format milestone timestamp safely using local time."""
+            return time.strftime('%H:%M:%S', time.localtime(timestamp if timestamp else state.get('updated', time.time())))
+
+        def milestone(message, ts=None):
             """Add one bounded, timestamped progress line without terminal control codes."""
-            lines.append('[' + timestamp + '] ' + message)
+            lines.append('[' + format_time(ts) + '] ' + message)
 
-        for attempt in state.get('attempts', [])[-3:]:
+        active_attempts = state.get('attempts', [])
+        if not self.attempts and len(active_attempts) > 1:
+            seen_phases = set()
+            for attempt in reversed(active_attempts):
+                phase = attempt.get('phase')
+                key = attempt.get('id') or (attempt['provider'], phase, attempt.get('generation'))
+                if phase in seen_phases:
+                    self.attempts[key] = attempt['status']
+                else:
+                    seen_phases.add(phase)
+
+        for attempt in active_attempts[-3:]:
             if attempt['phase'] == 'verify':
                 continue
             key = attempt.get('id') or (attempt['provider'], attempt['phase'], attempt.get('generation'))
@@ -82,24 +96,37 @@ class ProgressView:
                 continue
             self.attempts[key] = status
             label = 'started' if status == 'running' else status
-            milestone(text(attempt['provider']) + ' · ' + text(attempt['phase']) + ' ' + text(label))
+            ts = attempt.get('ended') if status in {'completed', 'failed'} else attempt.get('created')
+            milestone(text(attempt['provider']) + ' · ' + text(attempt['phase']) + ' ' + text(label), ts=ts)
 
-        for event in reversed(state.get('events', [])):
-            if event['kind'] not in {'files_changed', 'leader_changed', 'auto_accept_blocked', 'worker_fallback_selected'}:
-                continue
+        tracked_kinds = {'files_changed', 'leader_changed', 'auto_accept_blocked', 'worker_fallback_selected'}
+        relevant_events = [e for e in state.get('events', []) if e.get('kind') in tracked_kinds]
+        if not self.events and len(relevant_events) > 1:
+            seen_kinds = set()
+            for event in relevant_events:
+                kind = event.get('kind')
+                data = event['data'] if isinstance(event['data'], dict) else json.loads(event['data'])
+                key = (event.get('id'), kind, event.get('created'), json.dumps(data, sort_keys=True))
+                if kind in seen_kinds:
+                    self.events.add(key)
+                else:
+                    seen_kinds.add(kind)
+
+        for event in reversed(relevant_events):
             data = event['data'] if isinstance(event['data'], dict) else json.loads(event['data'])
-            key = (event['kind'], event['created'], json.dumps(data, sort_keys=True))
+            key = (event.get('id'), event['kind'], event.get('created'), json.dumps(data, sort_keys=True))
             if key in self.events:
                 continue
             self.events.add(key)
+            ts = event.get('created')
             if event['kind'] == 'files_changed':
-                milestone(str(data.get('total_files', len(data.get('files', [])))) + ' files changed')
+                milestone(str(data.get('total_files', len(data.get('files', [])))) + ' files changed', ts=ts)
             elif event['kind'] == 'leader_changed':
-                milestone('Leader changed: ' + brief(data))
+                milestone('Leader changed: ' + brief(data), ts=ts)
             elif event['kind'] == 'worker_fallback_selected':
-                milestone('Switched to ' + text(data.get('provider', 'active CLI')) + ' · ' + text(data.get('role', 'implement')))
+                milestone('Switched to ' + text(data.get('provider', 'active CLI')) + ' · ' + text(data.get('role', 'implement')), ts=ts)
             else:
-                milestone('Automatic file application blocked: ' + text(data.get('reason', 'Review required'), 400))
+                milestone('Automatic file application blocked: ' + text(data.get('reason', 'Review required'), 400), ts=ts)
 
         changes = state.get('file_changes', {})
         if changes.get('stats'):
@@ -113,7 +140,7 @@ class ProgressView:
         signature = json.dumps(verification, sort_keys=True)
         if checks and signature != self.verification:
             passed = sum(check['exit_code'] == 0 and not check.get('reason') for check in checks)
-            milestone(f'Tests: {passed}/{len(checks)} passed')
+            milestone(f'Tests: {passed}/{len(checks)} passed', ts=verification.get('created'))
             self.verification = signature
 
         status = state['status']
@@ -121,20 +148,20 @@ class ProgressView:
         if status in {'completed', 'blocked', 'cancelled', 'needs_review'}:
             if not self.finished:
                 elapsed = max(0, int(state['updated'] - state['created']))
-                milestone(status.replace('_', ' ').capitalize() + f" · {elapsed}s · {state['calls']}/{state['max_calls']} calls")
+                milestone(status.replace('_', ' ').capitalize() + f" · {elapsed}s · {state['calls']}/{state['max_calls']} calls", ts=state.get('updated'))
                 if state.get('error'):
                     lines.append('Reason: ' + text(state['error'], 1000))
                 lines.extend(outcome(state, include_files=self.file_stats is None))
                 self.finished = True
         elif lifecycle != self.lifecycle:
             if status == 'waiting':
-                milestone('Waiting: ' + text(state.get('error') or 'Provider is unavailable', 400))
+                milestone('Waiting: ' + text(state.get('error') or 'Provider is unavailable', 400), ts=state.get('updated'))
                 if state.get('next_run'):
                     lines.append('Next retry: ' + time.strftime('%Y-%m-%d %H:%M:%S %z', time.localtime(state['next_run'])))
             elif status == 'queued':
-                milestone('Queued · ' + text(state['phase']))
+                milestone('Queued · ' + text(state['phase']), ts=state.get('updated'))
             elif not state.get('attempts'):
-                milestone(text(status.capitalize()) + ' · ' + text(state['phase']))
+                milestone(text(status.capitalize()) + ' · ' + text(state['phase']), ts=state.get('updated'))
         self.lifecycle = lifecycle
         return '\n'.join(lines)
 

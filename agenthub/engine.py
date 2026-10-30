@@ -165,7 +165,7 @@ class Engine:
         provider = choose(self.config, self.store, role, priority, excluded=preferred_excluded)
         if provider:
             return provider, False
-        if role in {'implement', 'plan'} or (role == 'review' and not excluded):
+        if role == 'implement':
             fallback = choose(self.config, self.store, role, self._fallback_priority(flow),
                               excluded=preferred_excluded, allow_role_fallback=True)
             if fallback:
@@ -177,7 +177,7 @@ class Engine:
                     continue
                 if candidate in priority and choose(self.config, self.store, role, [candidate], excluded=excluded):
                     return candidate, False
-                if role in {'implement', 'plan'} or (role == 'review' and not excluded):
+                if role == 'implement':
                     if choose(self.config, self.store, role, [candidate], excluded=excluded, allow_role_fallback=True):
                         return candidate, True
         return None, False

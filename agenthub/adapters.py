@@ -260,7 +260,7 @@ def prompt_prefix(role):
 def context_capacity(provider, role):
     # Argument-based providers must reserve space for rules, instructions and schema.
     """Calculate available context after reserving instructions and report-schema space."""
-    if provider == 'copilot':
+    if provider in {'antigravity', 'copilot'}:
         return max(0, (18000 if os.name == 'nt' else 60000) - len(prompt_prefix(role)))
     return 2 ** 31
 

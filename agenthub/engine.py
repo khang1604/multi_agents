@@ -132,12 +132,65 @@ class Engine:
         return (row['status'] == 'cancelled' or row['generation'] != generation or
                 (self.store.home / 'stop').exists())
 
+    def _fallback_priority(self, flow):
+        """Return fallback provider candidates ordered by active workflow leader and configured priorities."""
+        previous = [r['provider'] for r in self.store.all(
+            "SELECT provider FROM attempts WHERE workflow_id=? AND status='completed' ORDER BY created DESC",
+            (flow['id'],))]
+        candidates = (([flow['leader']] if flow.get('leader') else []) + previous +
+                      self.config['leader_priority'] + self.config['worker_priority'] +
+                      list(self.config['providers']))
+        return list(dict.fromkeys(candidates))
+
+    def _choose_provider(self, flow, role, priority, excluded):
+        """Select a provider for a role, falling back to the active CLI when no dedicated provider is available."""
+        prior_failed = []
+        if role == 'implement':
+            failed_counts = {}
+            for row in self.store.all(
+                    "SELECT provider FROM attempts WHERE workflow_id=? AND phase='implement' AND status='failed'",
+                    (flow['id'],)):
+                failed_counts[row['provider']] = failed_counts.get(row['provider'], 0) + 1
+            model_fallbacks = {
+                json.loads(e['data'])['provider']
+                for e in self.store.all(
+                    "SELECT data FROM events WHERE workflow_id=? AND kind='model_fallback_selected'",
+                    (flow['id'],))
+            }
+            prior_failed = [
+                p for p, count in failed_counts.items()
+                if p not in excluded and (p not in model_fallbacks or count > 1)
+            ]
+        preferred_excluded = list(excluded) + prior_failed
+        provider = choose(self.config, self.store, role, priority, excluded=preferred_excluded)
+        if provider:
+            return provider, False
+        if role in {'implement', 'plan'} or (role == 'review' and not excluded):
+            fallback = choose(self.config, self.store, role, self._fallback_priority(flow),
+                              excluded=preferred_excluded, allow_role_fallback=True)
+            if fallback:
+                return fallback, True
+        if prior_failed:
+            ordered = sorted(self._fallback_priority(flow), key=lambda p: failed_counts.get(p, 0))
+            for candidate in ordered:
+                if candidate in excluded:
+                    continue
+                if candidate in priority and choose(self.config, self.store, role, [candidate], excluded=excluded):
+                    return candidate, False
+                if role in {'implement', 'plan'} or (role == 'review' and not excluded):
+                    if choose(self.config, self.store, role, [candidate], excluded=excluded, allow_role_fallback=True):
+                        return candidate, True
+        return None, False
+
     def _wait_or_block(self, flow, role, priority, excluded):
         """Persist a retry wait or blocker when no eligible provider can proceed."""
         installed = []
-        for provider in priority:
+        candidates = self._fallback_priority(flow) if role == 'implement' else priority
+        for provider in candidates:
             entry = self.config['providers'].get(provider, {})
-            if provider in excluded or role not in entry.get('roles', []) or not entry.get('enabled'):
+            if provider in excluded or not entry.get('enabled'):
+                continue
+            if role != 'implement' and role not in entry.get('roles', []):
                 continue
             try:
                 from .registry import execution_command
@@ -198,7 +251,7 @@ class Engine:
             self.store.update(flow['id'], status='blocked', error='Workflow time budget exhausted; progress retained')
             return
         project = self.store.project(flow['project_id'])
-        if not any(e.get('enabled') and 'implement' in e.get('roles', []) for e in self.config['providers'].values()):
+        if not any(e.get('enabled') and ('implement' in e.get('roles', []) or 'plan' in e.get('roles', [])) for e in self.config['providers'].values()):
             raise ValueError('No coding agent enabled; enable Codex or Claude for implementation')
         if isinstance(self.invoker, Invoker):
             from .security import preflight
@@ -235,19 +288,25 @@ class Engine:
                 other = choose(self.config, self.store, role, priority, excluded=[worker['provider']])
                 if other:
                     excluded.append(worker['provider'])
-        provider = choose(self.config, self.store, role, priority, excluded=excluded)
+        provider, fallback_used = self._choose_provider(flow, role, priority, excluded)
         if not provider:
             self._wait_or_block(flow, role, priority, excluded)
             return
         if role == 'implement' and isinstance(self.invoker, Invoker):
             from .readiness import probe_worker
-            try:
-                probe_worker(self.config, provider, path)
-            except ValueError as error:
-                self.store.update(flow['id'], flow['generation'], status='blocked', error=str(error))
-                self.store.event(flow['id'], 'worker_environment_failed',
-                                 {'provider': provider, 'ai_calls_consumed': 0})
-                return
+            while provider:
+                try:
+                    probe_worker(self.config, provider, path)
+                    break
+                except ValueError as error:
+                    self.store.event(flow['id'], 'worker_environment_failed',
+                                     {'provider': provider, 'ai_calls_consumed': 0})
+                    excluded.append(provider)
+                    next_provider, fallback_used = self._choose_provider(flow, role, priority, excluded)
+                    if not next_provider:
+                        self.store.update(flow['id'], flow['generation'], status='blocked', error=str(error))
+                        return
+                    provider = next_provider
         guard(json.loads(flow['handoff']), ws.fingerprint(path, self.store), role)
         from .adapters import context_capacity
         # A small-context reviewer must not block a verified delivery when a later
@@ -267,7 +326,7 @@ class Engine:
                     raise
                 context_error = str(error)
                 excluded.append(provider)
-                provider = choose(self.config, self.store, role, priority, excluded=excluded)
+                provider, fallback_used = self._choose_provider(flow, role, priority, excluded)
         if not provider:
             message = context_error or 'No eligible provider can receive the required context'
             self.store.update(flow['id'], status='needs_review' if role == 'review' else 'blocked', error=message)
@@ -282,6 +341,9 @@ class Engine:
         flow.update(status='running', generation=generation, calls=flow['calls'] + 1, leader=leader)
         if role in {'plan', 'review'} and old_leader and old_leader != provider:
             self.store.event(flow['id'], 'leader_changed', {'from': old_leader, 'to': provider, 'generation': generation})
+        if fallback_used:
+            self.store.event(flow['id'], 'worker_fallback_selected',
+                             {'provider': provider, 'role': role, 'leader': flow.get('leader')})
         self.store.event(flow['id'], 'agent_started', {'provider': provider, 'role': role, 'call': flow['calls']})
         if role == 'review' and worker and worker['provider'] == provider:
             self.store.event(flow['id'], 'self_review', {'provider': provider, 'independent': False})
@@ -363,10 +425,18 @@ class Engine:
                 return
             required = self.config['auto'][flow['complexity']]['reviewers']
             if len(reviews) < required:
-                self.store.update(flow['id'], generation, status='queued', phase='review', review=encode(review), error='')
-            else:
-                self.store.update(flow['id'], generation, status='completed', review=encode(review), error='', summary=report['summary'])
-                self.store.event(flow['id'], 'completed', {'reviews': len(reviews), 'calls': flow['calls']})
+                priority = list(dict.fromkeys(([flow['leader']] if flow['leader'] else []) + self.config['reviewer_priority']))
+                reviewed = [r['provider'] for r in reviews]
+                next_reviewer = choose(self.config, self.store, 'review', priority, excluded=reviewed)
+                health = {h['provider']: h for h in self.store.all('SELECT * FROM health')}
+                cooling = any(p not in reviewed and p in health and
+                              health[p]['reason'].startswith(('quota:', 'temporary:')) and health[p]['until'] > time.time()
+                              for p in priority if self.config['providers'].get(p, {}).get('enabled'))
+                if next_reviewer or cooling:
+                    self.store.update(flow['id'], generation, status='queued', phase='review', review=encode(review), error='')
+                    return
+            self.store.update(flow['id'], generation, status='completed', review=encode(review), error='', summary=report['summary'])
+            self.store.event(flow['id'], 'completed', {'reviews': len(reviews), 'calls': flow['calls']})
 
     def repair(self, flow, reason, review=None):
         """Schedule an allowed implementation repair within existing repair/call limits."""
@@ -439,7 +509,9 @@ class Engine:
     def serve(self):
         """Run the locked daemon loop and recover queued work without model polling."""
         with FileLock(self.store.home / 'daemon.lock'):
+            from .service import daemon_version
             (self.store.home / 'daemon.pid').write_text(str(os.getpid()),encoding='utf-8')
+            (self.store.home / 'daemon.version').write_text(daemon_version(), encoding='utf-8')
             self.recover()
             (self.store.home / 'stop').unlink(missing_ok=True)
             while not (self.store.home / 'stop').exists():

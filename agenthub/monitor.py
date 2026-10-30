@@ -85,7 +85,7 @@ class ProgressView:
             milestone(text(attempt['provider']) + ' · ' + text(attempt['phase']) + ' ' + text(label))
 
         for event in reversed(state.get('events', [])):
-            if event['kind'] not in {'files_changed', 'leader_changed', 'auto_accept_blocked'}:
+            if event['kind'] not in {'files_changed', 'leader_changed', 'auto_accept_blocked', 'worker_fallback_selected'}:
                 continue
             data = event['data'] if isinstance(event['data'], dict) else json.loads(event['data'])
             key = (event['kind'], event['created'], json.dumps(data, sort_keys=True))
@@ -96,6 +96,8 @@ class ProgressView:
                 milestone(str(data.get('total_files', len(data.get('files', [])))) + ' files changed')
             elif event['kind'] == 'leader_changed':
                 milestone('Leader changed: ' + brief(data))
+            elif event['kind'] == 'worker_fallback_selected':
+                milestone('Switched to ' + text(data.get('provider', 'active CLI')) + ' · ' + text(data.get('role', 'implement')))
             else:
                 milestone('Automatic file application blocked: ' + text(data.get('reason', 'Review required'), 400))
 

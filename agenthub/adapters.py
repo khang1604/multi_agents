@@ -48,10 +48,44 @@ class TaskBlocked(ValueError):
         super().__init__(report['summary'] + '\n' + '\n'.join(report['findings']))
 
 
+def _validate_file_writes(writes):
+    """Validate optional relative file writes returned by non-interactive implementers."""
+    if isinstance(writes, dict):
+        items = list(writes.items())
+    elif isinstance(writes, list) and all(isinstance(x, dict) and set(x) == {'path', 'content'} for x in writes):
+        items = [(x['path'], x['content']) for x in writes]
+    else:
+        raise ValueError('Invalid report file_writes')
+    if len(items) > 50:
+        raise ValueError('Too many file_writes entries')
+    for rel_path, content in items:
+        if (not isinstance(rel_path, str) or not rel_path.strip() or rel_path.startswith(('/', '\\'))
+                or ':' in rel_path or '..' in rel_path.replace('\\', '/').split('/')
+                or '.git' in rel_path.replace('\\', '/').split('/') or not isinstance(content, str)):
+            raise ValueError('Invalid file_writes path or content')
+
+
+def apply_file_writes(workspace, report, role):
+    """Apply validated file writes to the isolated worktree when a CLI cannot write directly."""
+    writes = report.pop('file_writes', None)
+    if role != 'implement' or not writes:
+        return
+    root = Path(workspace).resolve()
+    items = list(writes.items()) if isinstance(writes, dict) else [(x['path'], x['content']) for x in writes]
+    for rel_path, content in items:
+        target = (root / rel_path).resolve()
+        if not target.is_relative_to(root) or '.git' in target.relative_to(root).parts:
+            raise ValueError('file_writes path escapes isolated worktree')
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding='utf-8')
+
+
 def validate_report(value):
     """Validate provider reports against the required role schema before accepting results."""
-    if not isinstance(value, dict) or set(value) not in (LEGACY_REPORT_KEYS, set(REPORT_SCHEMA['required'])):
+    if not isinstance(value, dict) or (set(value) - {'file_writes'}) not in (LEGACY_REPORT_KEYS, set(REPORT_SCHEMA['required'])):
         raise ValueError('Agent report does not match the required schema')
+    if 'file_writes' in value:
+        _validate_file_writes(value['file_writes'])
     for key in ['outcome', 'verdict', 'complexity']:
         if value[key] not in REPORT_SCHEMA['properties'][key]['enum']:
             raise ValueError('Invalid report ' + key)
@@ -63,6 +97,7 @@ def validate_report(value):
     if 'handoff' in value:
         validate_delta(value['handoff'])
     if value['outcome'] == 'blocked':
+        value.pop('file_writes', None)
         raise TaskBlocked(value)
     return value
 
@@ -157,14 +192,18 @@ def build_command(provider, entry, role, prompt, folder, network):
         raise ValueError('Prompt exceeds CLI argument limit; reduce max_context_chars')
     if provider == 'copilot':
         if role == 'implement':
-            raise ValueError('Copilot is configured as planner/reviewer only in v0.1')
+            return prefix + ['-p', prompt, '--output-format', 'json', '--no-ask-user',
+                             '--disable-builtin-mcps',
+                             '--deny-tool=shell'] + model + extras, None, None
         return prefix + ['-p', prompt, '--output-format', 'json', '--no-ask-user',
-                         '--disable-builtin-mcps', '--available-tools=', '--no-remote', '--no-remote-export',
+                         '--disable-builtin-mcps', '--available-tools=',
                          '--deny-tool=shell', '--deny-tool=write', '--deny-tool=edit'] + model + extras, None, None
     if provider == 'antigravity':
+        args = prefix + ['--disable-slash-commands']
         if role == 'implement':
-            raise ValueError('Antigravity is configured as planner/reviewer only in v0.1')
-        return prefix + ['--disable-slash-commands', '-p', prompt, '--output-format', 'json'] + model + extras, None, None
+            settings = json.dumps({'permissions': {'allow': ['write_file(*)', 'edit_file(*)', 'read_file(*)']}})
+            args += ['--settings', settings]
+        return args + ['-p', prompt, '--output-format', 'json'] + model + extras, None, None
     raise ValueError('Unknown provider')
 
 
@@ -199,6 +238,9 @@ def instruction(role):
                    'Read only missing ranges/dependencies or files that have changed. '
                    'Preserve completed work. Do not access credentials, other projects or the Hub data directory. '
                    'Fix the supplied review findings/test failures. Verification is run independently by the Hub. '
+                   'If direct file-editing tools are disabled or unavailable in non-interactive mode, do NOT report '
+                   'outcome=blocked; instead return outcome=completed and include "file_writes": {"relative/path": '
+                   '"complete updated file content"} in your JSON object so the Hub writes the files into the worktree. '
                    'For audit reports, keep whole-worktree fingerprints in external Hub evidence, not inside the '
                    'report itself. Attribute verifier results to the Hub and distinguish cached/up-to-date from fresh execution. '
                    'Set verdict=not_applicable. ')
@@ -275,6 +317,7 @@ class Invoker:
                 if process.returncode:
                     return Result(error=stderr + '\n' + stdout[-6000:])
                 raise
+            apply_file_writes(workspace, report, role)
             if process.returncode:
                 usage['provider_exit_code'] = process.returncode
             (folder / 'report.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')

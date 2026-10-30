@@ -58,17 +58,19 @@ def reset_time(text, now=None):
     return None
 
 
-def choose(config, store, role, priority, excluded=(), now=None):
+def choose(config, store, role, priority, excluded=(), now=None, allow_role_fallback=False):
     """Choose the first enabled eligible provider for a role outside its cooldown."""
     from .platforms import resolve_command
     now = time.time() if now is None else now
     health = {r['provider']: r for r in store.all('SELECT * FROM health')}
     for name in priority:
         entry = config['providers'].get(name)
-        if name in excluded or not entry or not entry.get('enabled') or role not in entry['roles']:
+        if name in excluded or not entry or not entry.get('enabled'):
+            continue
+        if not allow_role_fallback and role not in entry['roles']:
             continue
         from .registry import SPECS
-        if name not in SPECS or role not in SPECS[name]['roles']:
+        if name not in SPECS or (not allow_role_fallback and role not in SPECS[name]['roles']):
             continue
         if health.get(name, {}).get('until', 0) > now:
             continue

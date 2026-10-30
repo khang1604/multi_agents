@@ -157,6 +157,7 @@ class Hub:
             phase = 'verify' if current['phase'] == 'review' else current['phase']
             review = '{}' if phase == 'verify' else current['review']
             scheduled = not_before > time.time()
+            db.execute("UPDATE health SET until=0, reason='' WHERE reason NOT LIKE 'quota:%'")
             db.execute("UPDATE workflows SET status=?,generation=generation+1,next_run=?,error=?,max_calls=?,phase=?,review=?,created=?,updated=? WHERE id=?",
                        ('waiting' if scheduled else 'queued', not_before if scheduled else 0,
                         'Scheduled resume; no AI calls before next_run' if scheduled else '',

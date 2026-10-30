@@ -63,6 +63,14 @@ def model_arguments(name, entry):
     return ['--model', model]
 
 
+def _is_file(path):
+    """Check whether a candidate path is a regular file without failing on inaccessible directories."""
+    try:
+        return Path(path).is_file()
+    except OSError:
+        return False
+
+
 def common_candidates(name):
     """Find documented CLI executable candidates without reading credentials."""
     spec = SPECS[name]
@@ -77,12 +85,15 @@ def common_candidates(name):
         if name == 'claude':
             relative += [Path.home() / '.local/bin/claude.exe']
         if name == 'antigravity':
-            relative += [local / 'agy/bin/agy.exe', program / 'Google/antigravity-cli/agy.exe']
-        values.extend([str(p)] for p in relative if p.is_file())
+            relative += [local / 'agy/bin/agy.exe', local / 'agy/bin/agy.cmd',
+                         local / 'Programs/Antigravity IDE/bin/agy.cmd',
+                         local / 'Programs/Antigravity IDE/bin/agy.exe',
+                         program / 'Google/antigravity-cli/agy.exe']
+        values.extend([str(p)] for p in relative if _is_file(p))
     else:
         # Official user-local native installers may precede a shell PATH refresh.
         candidate = Path.home() / '.local/bin' / spec['client']
-        if candidate.is_file():
+        if _is_file(candidate):
             values.append([str(candidate)])
     return values
 

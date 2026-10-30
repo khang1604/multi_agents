@@ -291,7 +291,7 @@ def build_pack(store, workflow, project, role, limit, security=None):
                 explicit.setdefault(name, {'path':name})
         prefixes = json.loads(project['context_paths'])
         candidates = [name for name in available if any(name == prefix or name.startswith(prefix.rstrip('/')+'/') for prefix in prefixes)]
-        candidates = list(dict.fromkeys(document_names + candidates))
+        candidates = list(dict.fromkeys(document_names + candidates + list(available)))
         terms = {s for s in re.findall(r'[\w]+', workflow['objective'].lower()) if len(s)>2}
         def score(name):
             """Rank approved candidate files by relevance to the current objective."""

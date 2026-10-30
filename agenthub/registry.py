@@ -18,7 +18,7 @@ SPECS = {
                'login': 'claude auth login', 'client': 'claude', 'auto': False},
     'copilot': {'roles': ['plan', 'review'], 'auth': None,
                 'login': 'copilot login (or /login inside CLI)', 'client': 'copilot', 'auto': True},
-    'antigravity': {'roles': ['plan', 'review'], 'auth': None,
+    'antigravity': {'roles': ['plan', 'implement', 'review'], 'auth': None,
                     'login': 'Open agy and follow its official sign-in flow', 'client': 'agy', 'auto': False},
 }
 

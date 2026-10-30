@@ -203,7 +203,7 @@ def build_command(provider, entry, role, prompt, folder, network):
         if role == 'implement':
             settings = json.dumps({'permissions': {'allow': ['write_file(*)', 'edit_file(*)', 'read_file(*)']}})
             args += ['--settings', settings]
-        return args + ['-p', '-', '--output-format', 'json'] + model + extras, prompt, None
+        return args + ['-p', prompt, '--output-format', 'json'] + model + extras, None, None
     raise ValueError('Unknown provider')
 
 

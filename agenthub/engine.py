@@ -236,7 +236,7 @@ class Engine:
     def _step(self, flow):
         """Execute the current workflow phase using configured providers and verification."""
         budget_start = flow['created']
-        wake = self.store.one("SELECT id,data FROM events WHERE workflow_id=? AND kind IN ('resume_scheduled','quota_wait_scheduled') ORDER BY id DESC LIMIT 1", (flow['id'],))
+        wake = self.store.one("SELECT id,data FROM events WHERE workflow_id=? AND kind IN ('resume_scheduled','quota_wait_scheduled','retry_requested') ORDER BY id DESC LIMIT 1", (flow['id'],))
         if wake:
             deadline = json.loads(wake['data'])['not_before']
             activation = self.store.one("SELECT data,created FROM events WHERE workflow_id=? AND kind='wake_activated' ORDER BY id DESC LIMIT 1", (flow['id'],))

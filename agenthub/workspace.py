@@ -7,7 +7,8 @@ import time
 import sys
 
 EXCLUDED = {'.git', '.env', 'node_modules', '.venv', 'venv', '__pycache__', 'data', 'dist', 'build',
-            'bin', 'obj', '.codex', '.claude', '.copilot', '.gemini', '.ssh', 'secrets', 'credentials'}
+            'bin', 'obj', '.codex', '.claude', '.copilot', '.gemini', '.ssh', 'secrets', 'credentials',
+            'graphify-out', '.system_generated', '.task-observer'}
 
 
 def git(path, *args, check=True):

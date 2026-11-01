@@ -11,7 +11,8 @@ import zipfile
 from . import workspace as ws
 from .store import encode
 
-TEMP_PARTS = {'__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache', 'node_modules', '.venv', 'venv', 'dist', 'build', 'coverage'}
+TEMP_PARTS = {'__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache', 'node_modules', '.venv', 'venv', 'dist', 'build', 'coverage',
+              'graphify-out', '.system_generated', '.task-observer'}
 
 
 def git_bytes(root, *args):

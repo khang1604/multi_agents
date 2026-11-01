@@ -1,10 +1,59 @@
+# Local MultiAgents data, databases & backups
 data/
-__pycache__/
-*.pyc
 *.sqlite3*
 *.local.json
 *.backup-*
 *.local.md
 
-# Local developer notes, task checkpoints, and maintenance tools.
+# Local developer notes, task checkpoints, and maintenance tools
 /.local/
+scratch/
+tmp/
+temp/
+
+# Agent knowledge bases, transcripts, and local caches
+graphify-out/
+.system_generated/
+.task-observer/
+.gemini/
+.claude/
+.codex/
+.copilot/
+
+# Python bytecode, environments & testing caches
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+ENV/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Secrets, private keys & environment configs
+.env
+.env.*
+!.env.example
+!.env.template
+*.pem
+*.key
+*.pfx
+
+# Operating system & editor metadata
+.DS_Store
+Thumbs.db
+desktop.ini
+*.bak
+*.old
+*.orig
+*.log
+.idea/
+.vscode/
+docs/

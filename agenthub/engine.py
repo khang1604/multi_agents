@@ -430,6 +430,7 @@ class Engine:
                 next_reviewer = choose(self.config, self.store, 'review', priority, excluded=reviewed)
                 health = {h['provider']: h for h in self.store.all('SELECT * FROM health')}
                 cooling = any(p not in reviewed and p in health and
+                              'review' in self.config['providers'].get(p, {}).get('roles', []) and
                               health[p]['reason'].startswith(('quota:', 'temporary:', 'invalid_result:')) and health[p]['until'] > time.time()
                               for p in priority if self.config['providers'].get(p, {}).get('enabled'))
                 if next_reviewer or cooling:

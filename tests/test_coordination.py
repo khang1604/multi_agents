@@ -234,6 +234,29 @@ class CoordinationTests(unittest.TestCase):
             self.assertEqual(final['status'], 'completed')
             self.assertEqual(calls, [('claude', 'plan'), ('codex', 'implement'), ('claude', 'review')])
 
+    def test_workflow_with_uncommitted_changes(self):
+        with tempfile.TemporaryDirectory(prefix='agenthub-test-') as tmp:
+            tmp_path = Path(tmp)
+            source = tmp_path / 'source'
+            write_demo(source)
+            git(source, 'init')
+            git(source, 'add', '.')
+            git(source, '-c', 'user.name=Test', '-c', 'user.email=test@localhost', 'commit', '-m', 'Baseline')
+            # Add uncommitted modification and untracked file
+            (source / 'main.py').write_text('# modified uncommitted', encoding='utf-8')
+            (source / 'extra.txt').write_text('untracked file', encoding='utf-8')
+
+            hub = Hub(tmp_path / 'state')
+            project = hub.store.add_project('uncommitted-demo', source, [['python', '-c', 'exit(0)']], ['main.py'])
+            flow = hub.start('uncommitted-demo', 'Task with dirty worktree', 'req-dirty', launch=False)
+            
+            from agenthub.workspace import prepare
+            ws_path, commit = prepare(hub.store, flow, project)
+            self.assertTrue(Path(ws_path).exists())
+            self.assertEqual((Path(ws_path) / 'main.py').read_text(encoding='utf-8'), '# modified uncommitted')
+            self.assertEqual((Path(ws_path) / 'extra.txt').read_text(encoding='utf-8'), 'untracked file')
+
+
 
 
 if __name__ == '__main__':

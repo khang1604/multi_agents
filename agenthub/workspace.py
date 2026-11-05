@@ -1,6 +1,7 @@
 import hashlib
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import re
 import time
@@ -39,18 +40,26 @@ def prepare(store, workflow, project):
     if is_git_repo(source):
         if Path(git(source, 'rev-parse', '--show-toplevel')).resolve() != source.resolve():
             raise ValueError('Register the repository root, not a subdirectory')
-        # A clean, committed baseline makes isolated worktrees reproducible.
-        if git(source, 'status', '--porcelain'):
-            raise ValueError('Project has uncommitted changes. Commit/stash them before starting a workflow.')
-        commit = git(source, 'rev-parse', 'HEAD')
+        dirty = git(source, 'status', '--porcelain')
+        commit = git(source, 'stash', 'create', check=False) if dirty else ''
+        if not commit:
+            commit = git(source, 'rev-parse', 'HEAD')
         if path.exists():
             if git(path, 'rev-parse', 'HEAD') != commit:
                 raise ValueError('Existing workspace does not match source HEAD')
         else:
             git(source, 'worktree', 'add', '--detach', str(path), commit)
+            if dirty:
+                untracked = git(source, 'ls-files', '--others', '--exclude-standard', check=False).splitlines()
+                for rel in untracked:
+                    if rel and not any(part in EXCLUDED or part.startswith('.env') for part in Path(rel).parts):
+                        src_f = source / rel
+                        if src_f.is_file():
+                            dst_f = path / rel
+                            dst_f.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(src_f, dst_f)
         return str(path), commit
     else:
-        import shutil
         if not path.exists():
             path.mkdir(parents=True, exist_ok=True)
             for item in source.iterdir():

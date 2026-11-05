@@ -91,9 +91,10 @@ def prepare(hub, project, scope=None, write=print):
     if not worker:
         raise ValueError('No coding CLI available, or it is in cooldown; run ma agents list --check')
     source = Path(project['path'])
-    commit = ws.git(source, 'rev-parse', 'HEAD')
-    if ws.git(source, 'status', '--porcelain'):
-        raise ValueError('Source has uncommitted changes; commit/stash the changes you want to use first. Init does not commit your files automatically.')
+    dirty = ws.git(source, 'status', '--porcelain')
+    commit = ws.git(source, 'stash', 'create', check=False) if dirty else ''
+    if not commit:
+        commit = ws.git(source, 'rev-parse', 'HEAD')
     # A dedicated baseline worktree avoids builds modifying the user's checkout.
     with FileLock(folder / 'readiness.lock'):
         worktree = folder / 'readiness' / ('baseline-' + commit[:12])

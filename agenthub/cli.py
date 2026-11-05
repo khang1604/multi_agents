@@ -154,6 +154,7 @@ def parser():
     handoff.add_argument('workflow_id', nargs='?')
     handoff.add_argument('--allow-approach'); handoff.add_argument('--reason')
     status = sub.add_parser('status'); status.add_argument('workflow_id', nargs='?'); status.add_argument('--watch', action='store_true'); status.add_argument('--json', action='store_true')
+    watch_cmd = sub.add_parser('watch', help='Follow a workflow live in real-time'); watch_cmd.add_argument('workflow_id', nargs='?'); watch_cmd.add_argument('--json', action='store_true')
     for name in ('logs', 'diff', 'cancel', 'retry'):
         ap = sub.add_parser(name); ap.add_argument('workflow_id', nargs='?')
         if name == 'retry':
@@ -347,7 +348,7 @@ def normalize_argv(argv):
     if not tokens:
         return tokens
     known = {'init', 'setup', 'doctor', 'agents', 'config', 'projects', 'context',
-             'run', 'accept', 'review', 'auto-accept', 'handoff', 'status', 'logs',
+             'run', 'accept', 'review', 'auto-accept', 'handoff', 'status', 'watch', 'logs',
              'diff', 'cancel', 'retry', 'start', 'stop', 'restart', 'open', 'wake', 'mcp',
              'mcp-config', 'integrations', 'chat', 'install-command', 'uninstall',
              'update', 'migrate', 'demo'}
@@ -495,10 +496,11 @@ def main(argv=None):
             watch_workflow(hub, flow['id'], watch=True, json_mode=args.json, interactive_accept=sys.stdin.isatty())
         else:
             show(flow)
-    elif command == 'status':
+    elif command in {'status', 'watch'}:
         if not args.workflow_id and not hub.store.one('SELECT id FROM workflows LIMIT 1'):
             show({'daemon': daemon_status(hub.store.home), 'workflows': []}); return
-        watch_workflow(hub, latest(hub, args.workflow_id), args.watch, args.json, interactive_accept=sys.stdin.isatty())
+        should_watch = (command == 'watch') or getattr(args, 'watch', False)
+        watch_workflow(hub, latest(hub, args.workflow_id), should_watch, args.json, interactive_accept=sys.stdin.isatty())
     elif command in {'accept', 'review'}:
         from .acceptance import accept, preview
         workflow_id = latest(hub, args.workflow_id)

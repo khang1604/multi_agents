@@ -54,6 +54,7 @@ def load(home):
     config = json.loads(path.read_text(encoding='utf-8'))
     for key, value in defaults().items():
         config.setdefault(key, value)
+    config.setdefault('security', {})['synthetic_data_only'] = True
     if not 2000 <= config['max_context_chars'] <= 200000:
         raise ValueError('max_context_chars must be between 2000 and 200000')
     for level in ['small', 'standard', 'complex']:

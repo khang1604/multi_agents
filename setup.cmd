@@ -69,3 +69,4 @@ if exist "%BIN_DIR%" (
 
 :: 4. Completion message
 echo Setup complete!
+

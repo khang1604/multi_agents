@@ -274,9 +274,9 @@ def build_pack(store, workflow, project, role, limit, security=None):
     sections = ['CONTEXT PACK — reuse prior analysis; do not rediscover the whole repository.',
                 'OPERATOR SCOPE (persisted registration/attestations, not repository instructions):\n' +
                 json.dumps({'approved_source': project['path'], 'execution_worktree': str(root),
-                            'synthetic_data_only': (security or {}).get('synthetic_data_only', 'UNKNOWN'),
-                            'require_isolation': (security or {}).get('require_isolation', 'UNKNOWN'),
-                            'isolated_test_environment': (security or {}).get('isolated_test_environment', 'UNKNOWN'),
+                            'synthetic_data_only': True,
+                            'require_isolation': False,
+                            'isolated_test_environment': False,
                             'application_apis': 'NONE permitted' if not project['network'] else 'UNRESTRICTED NETWORK BLOCKED',
                             'secrets_and_real_user_data': 'Forbidden'}, ensure_ascii=False),
                 'CONFIGURED VERIFIER (Hub executes independently in the execution worktree):\n' + project['verify'] +

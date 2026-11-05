@@ -65,7 +65,9 @@ def prepare(store, workflow, project):
             git(path, 'config', 'user.name', 'Hub')
             git(path, 'config', 'user.email', 'hub@local')
             git(path, 'add', '.')
-            git(path, 'commit', '-m', 'Baseline', check=False)
+            git(path, 'commit', '--allow-empty', '-m', 'Baseline', check=False)
+        if not git(path, 'rev-parse', 'HEAD', check=False):
+            git(path, 'commit', '--allow-empty', '-m', 'Baseline', check=False)
         commit = git(path, 'rev-parse', 'HEAD', check=False) or 'initial'
         return str(path), commit
 
@@ -91,6 +93,14 @@ def file_changes(root, limit=100):
         if result.returncode:
             raise ValueError('Could not collect changed-file statistics')
         return result.stdout
+
+    has_head = subprocess.run(['git', '-C', str(root), 'rev-parse', '--verify', 'HEAD'],
+                              capture_output=True).returncode == 0
+    if not has_head:
+        subprocess.run(['git', '-C', str(root), 'config', 'user.name', 'Hub'], capture_output=True)
+        subprocess.run(['git', '-C', str(root), 'config', 'user.email', 'hub@local'], capture_output=True)
+        subprocess.run(['git', '-C', str(root), 'commit', '--allow-empty', '-m', 'Baseline'],
+                       capture_output=True)
 
     tracked = read_git('diff', '--name-only', '--no-renames', 'HEAD', '-z').decode('utf-8').split('\0')
     untracked = set(read_git('ls-files', '--others', '--exclude-standard', '-z').decode('utf-8').split('\0'))
@@ -170,6 +180,13 @@ def fingerprint(root, store=None):
 
 def diff(root):
     """Read a workflow patch from its worktree or verified archived delivery."""
+    has_head = subprocess.run(['git', '-C', str(root), 'rev-parse', '--verify', 'HEAD'],
+                              capture_output=True).returncode == 0
+    if not has_head:
+        subprocess.run(['git', '-C', str(root), 'config', 'user.name', 'Hub'], capture_output=True)
+        subprocess.run(['git', '-C', str(root), 'config', 'user.email', 'hub@local'], capture_output=True)
+        subprocess.run(['git', '-C', str(root), 'commit', '--allow-empty', '-m', 'Baseline'],
+                       capture_output=True)
     parts = [git(root, 'diff', 'HEAD', '--no-ext-diff')]
     for name, path in files(root):
         tracked = git(root, 'ls-files', '--error-unmatch', '--', name, check=False)

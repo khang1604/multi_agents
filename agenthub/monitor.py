@@ -111,7 +111,7 @@ class ProgressView:
             label_col = green(label) if label == 'completed' else red(label) if label == 'failed' else yellow(label)
             milestone(cyan(text(attempt['provider'])) + ' · ' + text(attempt['phase']) + ' ' + label_col, ts=ts)
 
-        tracked_kinds = {'files_changed', 'leader_changed', 'auto_accept_blocked', 'worker_fallback_selected'}
+        tracked_kinds = {'files_changed', 'leader_changed', 'auto_accept_blocked', 'worker_fallback_selected', 'worker_assigned'}
         relevant_events = [e for e in state.get('events', []) if e.get('kind') in tracked_kinds]
         if not self.events and len(relevant_events) > 1:
             seen_kinds = set()
@@ -135,6 +135,13 @@ class ProgressView:
                 milestone(green(str(data.get('total_files', len(data.get('files', [])))) + ' files changed'), ts=ts)
             elif event['kind'] == 'leader_changed':
                 milestone(cyan('Leader changed: ') + brief(data), ts=ts)
+            elif event['kind'] == 'worker_assigned':
+                worker_name = text(data.get('assigned_worker', ''))
+                leader_name = text(data.get('leader', 'analyst'))
+                if worker_name == leader_name:
+                    milestone(cyan('Worker assigned: ') + green(worker_name) + dim(' (self-assigned by analyst)'), ts=ts)
+                else:
+                    milestone(cyan('Worker assigned: ') + green(worker_name) + dim(' (delegated by ' + leader_name + ')'), ts=ts)
             elif event['kind'] == 'worker_fallback_selected':
                 milestone(yellow('Switched to ' + text(data.get('provider', 'active CLI'))) + ' · ' + text(data.get('role', 'implement')), ts=ts)
             else:

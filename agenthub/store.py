@@ -144,7 +144,7 @@ class Store:
             if active:
                 raise ValueError('Project already has active workflow ' + active['id'])
             workflow_id = uuid.uuid4().hex[:12]
-            phase = 'implement' if complexity == 'small' else 'plan'
+            phase = 'plan'
             db.execute('''INSERT INTO workflows
                 (id,project_id,objective,request_key,status,phase,complexity,max_calls,max_repairs,created,updated)
                 VALUES(?,?,?,?,?,?,?,?,?,?,?)''', (workflow_id, project['id'], objective, request_key,

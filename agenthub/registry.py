@@ -22,6 +22,33 @@ SPECS = {
                     'login': 'Open agy and follow its official sign-in flow', 'client': 'agy', 'auto': False},
 }
 
+AGENT_PROFILES = {
+    'antigravity': {
+        'name': 'Google Antigravity CLI (agy)',
+        'strengths': 'System architecture, multi-step planning, comprehensive analysis, full-stack engineering, strict adherence to security boundaries and context packing, execution and quality review.',
+        'specialties': ['architecture', 'planning', 'full-stack', 'system-design', 'review'],
+        'roles': ['plan', 'implement', 'review'],
+    },
+    'claude': {
+        'name': 'Anthropic Claude Code CLI (claude)',
+        'strengths': 'In-depth code analysis, complex refactoring, deep debugging, algorithmic problem solving, performance optimization, and rigorous code review.',
+        'specialties': ['refactoring', 'debugging', 'complex-algorithms', 'deep-analysis', 'review'],
+        'roles': ['plan', 'implement', 'review'],
+    },
+    'codex': {
+        'name': 'OpenAI Codex CLI (codex)',
+        'strengths': 'Fast code generation, strict specification following, comprehensive unit & integration test writing, backend APIs, automation scripts, and feature scaffolding.',
+        'specialties': ['fast-coding', 'unit-tests', 'backend-api', 'scaffolding', 'scripts'],
+        'roles': ['plan', 'implement', 'review'],
+    },
+    'copilot': {
+        'name': 'GitHub Copilot CLI (copilot)',
+        'strengths': 'Quick edits, standard boilerplate, implementation suggestions, documentation updates, and code review.',
+        'specialties': ['quick-edits', 'documentation', 'boilerplate', 'review'],
+        'roles': ['plan', 'review'],
+    },
+}
+
 
 def validate_entry(name, entry):
     """Validate supported provider roles, enabled state, and model policy."""

@@ -18,8 +18,8 @@ def defaults():
         'security': {'require_isolation': False, 'isolated_test_environment': False,
                      'synthetic_data_only': False, 'isolation_description': ''},
         'leader_priority': ['antigravity', 'claude', 'codex', 'copilot'],
-        'worker_priority': ['codex', 'claude'],
-        'reviewer_priority': ['claude', 'copilot', 'codex', 'antigravity'],
+        'worker_priority': ['codex', 'claude', 'antigravity'],
+        'reviewer_priority': ['antigravity', 'claude', 'copilot', 'codex'],
         'providers': {
             'antigravity': {'command': ['agy'], 'enabled': True, 'roles': ['plan', 'implement', 'review']},
             'codex': {'command': ['codex'], 'enabled': True, 'roles': ['plan', 'implement', 'review']},

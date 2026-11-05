@@ -137,10 +137,51 @@ class Engine:
         previous = [r['provider'] for r in self.store.all(
             "SELECT provider FROM attempts WHERE workflow_id=? AND status='completed' ORDER BY created DESC",
             (flow['id'],))]
-        candidates = (([flow['leader']] if flow.get('leader') else []) + previous +
+        assigned = self._get_assigned_worker(flow)
+        candidates = (([assigned] if assigned else []) +
+                      ([flow['leader']] if flow.get('leader') else []) + previous +
                       self.config['leader_priority'] + self.config['worker_priority'] +
                       list(self.config['providers']))
         return list(dict.fromkeys(candidates))
+
+    def _get_assigned_worker(self, flow):
+        """Extract preferred or assigned worker specified by the analyst/leader."""
+        try:
+            plan = json.loads(flow.get('plan') or '{}')
+        except Exception:
+            plan = {}
+        assigned = plan.get('assigned_worker')
+        if not assigned and isinstance(plan.get('subtasks'), list):
+            for st in plan['subtasks']:
+                if isinstance(st, dict) and st.get('agent'):
+                    assigned = st['agent']
+                    break
+        if not assigned:
+            try:
+                handoff = json.loads(flow.get('handoff') or '{}')
+                assigned = handoff.get('checkpoint', {}).get('next_action', {}).get('worker')
+            except Exception:
+                pass
+        if isinstance(assigned, str):
+            assigned = assigned.strip().lower()
+            aliases = {'agy': 'antigravity', 'claude-code': 'claude', 'github-copilot': 'copilot'}
+            assigned = aliases.get(assigned, assigned)
+            if assigned in self.config.get('providers', {}):
+                return assigned
+        return None
+
+    def _build_worker_priority(self, flow, assigned=None):
+        """Build worker priority starting with assigned worker if available."""
+        priority = []
+        if assigned:
+            priority.append(assigned)
+        for p in self.config.get('worker_priority', []):
+            if p not in priority:
+                priority.append(p)
+        for p in self.config.get('providers', {}):
+            if p not in priority and 'implement' in self.config['providers'][p].get('roles', []):
+                priority.append(p)
+        return priority
 
     def _choose_provider(self, flow, role, priority, excluded):
         """Select a provider for a role, falling back to the active CLI when no dedicated provider is available."""
@@ -277,15 +318,19 @@ class Engine:
         if role == 'plan':
             priority = self.config['leader_priority']
         elif role == 'implement':
-            priority = self.config['worker_priority']
+            assigned = self._get_assigned_worker(flow)
+            priority = self._build_worker_priority(flow, assigned)
         else:
-            priority = list(dict.fromkeys(([flow['leader']] if flow['leader'] else []) + self.config['reviewer_priority']))
+            leader = flow.get('leader')
+            priority = list(dict.fromkeys(([leader] if leader else []) + self.config['reviewer_priority']))
             reviews = json.loads(flow['review']).get('reviews', [])
             excluded = [r['provider'] for r in reviews]
             worker = self.store.one("SELECT provider FROM attempts WHERE workflow_id=? AND phase='implement' AND status='completed' ORDER BY created DESC LIMIT 1", (flow['id'],))
-            # Prefer another model family, but don't manufacture independence if only one exists.
-            if worker and not reviews:
-                other = choose(self.config, self.store, role, priority, excluded=[worker['provider']])
+            # The analyst agent (flow['leader']) is the designated primary reviewer.
+            # If the leader already completed a review and another reviewer is required by policy,
+            # prefer an independent model family from the worker.
+            if worker and reviews:
+                other = choose(self.config, self.store, role, priority, excluded=excluded + [worker['provider']])
                 if other:
                     excluded.append(worker['provider'])
         provider, fallback_used = self._choose_provider(flow, role, priority, excluded)
@@ -406,9 +451,12 @@ class Engine:
             self.store.event(flow['id'], 'files_changed', ws.file_changes(path))
         self.store.remember(project['id'], 'checkpoint', role + ': ' + report['summary'][:3500])
         if role == 'plan':
-            complexity = 'complex' if report['complexity'] == 'complex' else flow['complexity']
+            complexity = report['complexity'] if report.get('complexity') in {'small', 'standard', 'complex'} else flow['complexity']
+            assigned_worker = report.get('assigned_worker') or ''
             self.store.update(flow['id'], generation, status='queued', phase='implement',
                               plan=encode(report), complexity=complexity, error='', summary=report['summary'])
+            if assigned_worker:
+                self.store.event(flow['id'], 'worker_assigned', {'assigned_worker': assigned_worker, 'leader': flow['leader']})
         elif role == 'implement':
             self.store.update(flow['id'], generation, status='queued', phase='verify',
                               summary=report['summary'], error='', review=encode({'previous_findings': json.loads(flow['review']).get('findings', [])}))

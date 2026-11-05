@@ -30,14 +30,17 @@ class FilterTests(unittest.TestCase):
 '''
 
 
-def report(role, complexity='standard', verdict='approve', findings=None):
+def report(role, complexity='standard', verdict='approve', findings=None, assigned_worker='codex'):
     """Build a synthetic role report for offline orchestration tests."""
-    return {'outcome': 'completed', 'summary': 'SIMULATED ' + role,
-            'steps': ['Inspect code', 'Implement task filtering', 'Run verification'],
-            'acceptance': ['Compatible API', 'Filtering works', 'Tests pass'],
-            'verdict': verdict if role == 'review' else 'not_applicable',
-            'findings': findings or [], 'complexity': complexity,
-            'context_files': ['app/tasks.py','tests/test_tasks.py']}
+    rep = {'outcome': 'completed', 'summary': 'SIMULATED ' + role,
+           'steps': ['Inspect code', 'Implement task filtering', 'Run verification'],
+           'acceptance': ['Compatible API', 'Filtering works', 'Tests pass'],
+           'verdict': verdict if role == 'review' else 'not_applicable',
+           'findings': findings or [], 'complexity': complexity,
+           'context_files': ['app/tasks.py','tests/test_tasks.py']}
+    if role == 'plan':
+        rep['assigned_worker'] = assigned_worker
+    return rep
 
 
 class SimulatedInvoker:

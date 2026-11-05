@@ -16,7 +16,7 @@ SPECS = {
               'login': 'codex login', 'client': 'codex', 'auto': False},
     'claude': {'roles': ['plan', 'implement', 'review'], 'auth': ['auth', 'status'],
                'login': 'claude auth login', 'client': 'claude', 'auto': False},
-    'copilot': {'roles': ['plan', 'review'], 'auth': None,
+    'copilot': {'roles': ['plan', 'implement', 'review'], 'auth': None,
                 'login': 'copilot login (or /login inside CLI)', 'client': 'copilot', 'auto': True},
     'antigravity': {'roles': ['plan', 'implement', 'review'], 'auth': None,
                     'login': 'Open agy and follow its official sign-in flow', 'client': 'agy', 'auto': False},
@@ -43,9 +43,9 @@ AGENT_PROFILES = {
     },
     'copilot': {
         'name': 'GitHub Copilot CLI (copilot)',
-        'strengths': 'Quick edits, standard boilerplate, implementation suggestions, documentation updates, and code review.',
-        'specialties': ['quick-edits', 'documentation', 'boilerplate', 'review'],
-        'roles': ['plan', 'review'],
+        'strengths': 'Fast feature implementation, UI/frontend development, boilerplate, responsive styling, bug fixes, and code review.',
+        'specialties': ['fast-coding', 'ui-frontend', 'boilerplate', 'quick-edits', 'review'],
+        'roles': ['plan', 'implement', 'review'],
     },
 }
 

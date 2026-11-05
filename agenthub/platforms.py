@@ -59,31 +59,46 @@ def resolve_command(prefix):
     found = shutil.which(prefix[0]) or (prefix[0] if Path(prefix[0]).is_file() else None)
     if not found:
         home = Path.home()
+        local_app = Path(os.environ['LOCALAPPDATA']) if 'LOCALAPPDATA' in os.environ else None
+        roaming_app = Path(os.environ['APPDATA']) if 'APPDATA' in os.environ else None
+        extra_agy = [p for p in [local_app / 'Programs/Antigravity/bin/agy' if local_app else None,
+                                 roaming_app / 'npm/agy' if roaming_app else None] if p]
+        extra_codex = [p for p in [roaming_app / 'npm/codex' if roaming_app else None,
+                                   local_app / 'Programs/Codex/codex' if local_app else None] if p]
+        extra_claude = [p for p in [roaming_app / 'npm/claude' if roaming_app else None] if p]
+        extra_copilot = [p for p in [roaming_app / 'npm/copilot' if roaming_app else None] if p]
+
         fallbacks = {
             'agy': [
                 home / '.gemini/bin/agy',
                 home / '.local/share/MultiAgents/runtime/bin/agy',
                 home / '.local/bin/agy',
-            ],
+            ] + extra_agy,
             'codex': [
                 home / '.codex/plugins/.plugin-appserver/codex',
                 home / '.config/Code/agent-host/sdk-cache/codex/0.163.0/linux-x64/node_modules/.bin/codex',
                 home / '.local/share/MultiAgents/runtime/bin/codex',
                 home / '.local/bin/codex',
-            ],
+            ] + extra_codex,
             'claude': [
                 home / '.local/bin/claude',
                 home / '.config/Code/agent-host/sdk-cache/claude',
                 home / '.npm-global/bin/claude',
-            ],
+            ] + extra_claude,
             'copilot': [
                 home / '.local/bin/copilot',
                 home / '.npm-global/bin/copilot',
-            ],
+            ] + extra_copilot,
         }.get(prefix[0].lower(), [])
         for candidate in fallbacks:
-            if candidate.is_file():
-                found = str(candidate)
+            checks = [candidate]
+            if os.name == 'nt':
+                checks.extend([candidate.with_suffix('.cmd'), candidate.with_suffix('.exe'), candidate.with_suffix('.bat')])
+            for target in checks:
+                if target.is_file():
+                    found = str(target)
+                    break
+            if found:
                 break
     if not found:
         raise FileNotFoundError(prefix[0] + ' is not installed/on PATH')

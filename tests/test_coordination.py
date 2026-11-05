@@ -143,7 +143,100 @@ class CoordinationTests(unittest.TestCase):
             # 3: claude reviews!
             self.assertEqual(calls, [('claude', 'plan'), ('claude', 'implement'), ('claude', 'review')])
 
+    def test_auto_init_unregistered_git_project(self):
+        import os
+        from agenthub.cli import current_project
+        with tempfile.TemporaryDirectory(prefix='agenthub-test-') as tmp:
+            tmp_path = Path(tmp)
+            source = tmp_path / 'source'
+            write_demo(source)
+            git(source, 'init')
+            git(source, 'add', '.')
+            git(source, '-c', 'user.name=Test', '-c', 'user.email=test@localhost', 'commit', '-m', 'Baseline')
+            hub = Hub(tmp_path / 'state')
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(source)
+                name = current_project(hub, auto_init=True)
+                self.assertTrue(name.startswith('source-'))
+                project = hub.store.project(name)
+                self.assertEqual(Path(project['path']).resolve(), source.resolve())
+            finally:
+                os.chdir(old_cwd)
+
+    def test_auto_init_non_git_project(self):
+        import os
+        from agenthub.cli import current_project
+        with tempfile.TemporaryDirectory(prefix='agenthub-test-') as tmp:
+            tmp_path = Path(tmp)
+            source = tmp_path / 'source_nongit'
+            write_demo(source)
+            # Notice: No git init here!
+            hub = Hub(tmp_path / 'state')
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(source)
+                name = current_project(hub, auto_init=True)
+                self.assertTrue(name.startswith('source_nongit-'))
+                project = hub.store.project(name)
+                self.assertEqual(Path(project['path']).resolve(), source.resolve())
+
+                # Also verify workspace.prepare works on this non-git project
+                from agenthub.workspace import prepare
+                workflow = {'id': 'wf-nongit', 'workspace': None, 'base_commit': None}
+                ws_path, commit = prepare(hub.store, workflow, project)
+                self.assertTrue(Path(ws_path).exists())
+                self.assertTrue((Path(ws_path) / '.git').exists())
+                # Source must remain clean and without a .git folder!
+                self.assertFalse((source / '.git').exists())
+            finally:
+                os.chdir(old_cwd)
+
+    def test_project_without_verification_commands(self):
+        # Projects without test runners (e.g. static HTML/CSS, docs) can run and complete
+        with tempfile.TemporaryDirectory(prefix='agenthub-test-') as tmp:
+            tmp_path = Path(tmp)
+            source = tmp_path / 'source_web'
+            source.mkdir()
+            (source / 'index.html').write_text('<h1>Hello</h1>', encoding='utf-8')
+            hub = Hub(tmp_path / 'state')
+            config = defaults()
+            config['retention']['archive_completed_worktrees'] = False
+            config['leader_priority'] = ['claude']
+            config['worker_priority'] = ['codex']
+            config['reviewer_priority'] = ['claude']
+            for entry in config['providers'].values():
+                entry['command'] = [sys.executable]
+            hub.config = config
+            # Explicitly add project with NO verification command (verify=[])
+            project = hub.store.add_project('web-demo', source, [], ['index.html'], allow_unverified=True)
+
+            calls = []
+            class MockInvoker:
+                def run(self, provider, role, context, workspace, folder, network, on_pid, cancelled):
+                    calls.append((provider, role))
+                    if role == 'implement':
+                        (Path(workspace) / 'style.css').write_text('body { margin: 0; }', encoding='utf-8')
+                    rep = report(role, assigned_worker='codex')
+                    return Result(report=rep)
+
+            invoker = MockInvoker()
+            engine = Engine(hub.store, hub.config, invoker)
+            flow = hub.start('web-demo', 'Create dashboard with html, css', 'req-web', launch=False)
+
+            for _ in range(10):
+                if not engine.tick():
+                    break
+                if hub.store.workflow(flow['id'])['status'] in {'completed', 'blocked', 'needs_review'}:
+                    break
+
+            final = hub.status(flow['id'])
+            self.assertEqual(final['status'], 'completed')
+            self.assertEqual(calls, [('claude', 'plan'), ('codex', 'implement'), ('claude', 'review')])
+
+
 
 if __name__ == '__main__':
     unittest.main()
+
 

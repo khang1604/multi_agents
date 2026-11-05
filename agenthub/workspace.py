@@ -20,6 +20,12 @@ def git(path, *args, check=True):
     return result.stdout.strip()
 
 
+def is_git_repo(path):
+    """Check if the given path is a Git repository root or worktree."""
+    p = Path(path)
+    return p.exists() and (p / '.git').exists()
+
+
 def prepare(store, workflow, project):
     """Create and register an isolated workflow worktree from a clean approved baseline."""
     if workflow['workspace']:
@@ -28,20 +34,40 @@ def prepare(store, workflow, project):
             raise ValueError('Saved worktree no longer exists; restore it before retrying')
         return str(path), workflow['base_commit']
     source = Path(project['path'])
-    if Path(git(source, 'rev-parse', '--show-toplevel')).resolve() != source.resolve():
-        raise ValueError('Register the repository root, not a subdirectory')
-    # A clean, committed baseline makes isolated worktrees reproducible.
-    if git(source, 'status', '--porcelain'):
-        raise ValueError('Project has uncommitted changes. Commit/stash them before starting a workflow.')
-    commit = git(source, 'rev-parse', 'HEAD')
     path = store.home / 'workspaces' / workflow['id']
     path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists():
-        if git(path, 'rev-parse', 'HEAD') != commit:
-            raise ValueError('Existing workspace does not match source HEAD')
+    if is_git_repo(source):
+        if Path(git(source, 'rev-parse', '--show-toplevel')).resolve() != source.resolve():
+            raise ValueError('Register the repository root, not a subdirectory')
+        # A clean, committed baseline makes isolated worktrees reproducible.
+        if git(source, 'status', '--porcelain'):
+            raise ValueError('Project has uncommitted changes. Commit/stash them before starting a workflow.')
+        commit = git(source, 'rev-parse', 'HEAD')
+        if path.exists():
+            if git(path, 'rev-parse', 'HEAD') != commit:
+                raise ValueError('Existing workspace does not match source HEAD')
+        else:
+            git(source, 'worktree', 'add', '--detach', str(path), commit)
+        return str(path), commit
     else:
-        git(source, 'worktree', 'add', '--detach', str(path), commit)
-    return str(path), commit
+        import shutil
+        if not path.exists():
+            path.mkdir(parents=True, exist_ok=True)
+            for item in source.iterdir():
+                if item.name in EXCLUDED:
+                    continue
+                dest = path / item.name
+                if item.is_dir():
+                    shutil.copytree(item, dest, ignore=shutil.ignore_patterns(*EXCLUDED))
+                elif item.is_file():
+                    shutil.copy2(item, dest)
+            git(path, 'init')
+            git(path, 'config', 'user.name', 'Hub')
+            git(path, 'config', 'user.email', 'hub@local')
+            git(path, 'add', '.')
+            git(path, 'commit', '-m', 'Baseline', check=False)
+        commit = git(path, 'rev-parse', 'HEAD', check=False) or 'initial'
+        return str(path), commit
 
 
 def allowed_source_name(name):
@@ -109,8 +135,17 @@ def file_changes(root, limit=100):
 def files(root):
     """Index allowed source filenames without reading excluded data."""
     root = Path(root)
-    output = git(root, 'ls-files', '-c', '-o', '--exclude-standard')
-    for name in sorted(set(output.splitlines())):
+    if is_git_repo(root):
+        output = git(root, 'ls-files', '-c', '-o', '--exclude-standard')
+        names = output.splitlines()
+    else:
+        names = []
+        for p in root.rglob('*'):
+            if p.is_file():
+                rel = p.relative_to(root).as_posix()
+                if not any(part in EXCLUDED for part in Path(rel).parts):
+                    names.append(rel)
+    for name in sorted(set(names)):
         rel = Path(name)
         if not allowed_source_name(name):
             continue

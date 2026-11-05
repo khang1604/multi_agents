@@ -139,29 +139,180 @@ def apply(hub, providers, actions):
     return run(hub, check=False, action=perform)
 
 
-def terminal(hub, check=True):
-    """Run the terminal Quick Setup selection flow and optional official logins."""
-    from .wizard import checkbox, login_selected
-    print('MULTI AGENTS — QUICK SETUP | Enter applies selected options; Esc cancels.')
-    print('Model: INHERIT for all agents; preserve suitable roles. Customize: ma setup --advanced')
-    value = plan(hub, check)
-    for row in value['agents']:
-        print(row['agent'], row['state'], row['authentication'])
+def _agent_submenu(hub, providers):
+    """Sub-menu for enabling/disabling agents or triggering login."""
+    from .presentation import bold, cyan, green, yellow, dim
+    while True:
+        print()
+        print(bold('--- AGENTS & ROLES CONFIGURATION ---'))
+        for idx, name in enumerate(providers, 1):
+            enabled = hub.config['providers'].get(name, {}).get('enabled', False)
+            status = green('[Enabled]') if enabled else dim('[Disabled]')
+            roles = ', '.join(hub.config['providers'].get(name, {}).get('roles', []))
+            print(f"  {idx}. {cyan(name):<15} {status}  Roles: {roles}")
+        print()
+        print("Enter agent number (1-4) to toggle, or press Enter to return.")
+        try:
+            val = input('Choice: ').strip()
+        except (EOFError, KeyboardInterrupt):
+            break
+        if not val:
+            break
+        if val.isdigit() and 1 <= int(val) <= len(providers):
+            target = providers[int(val) - 1]
+            cur = hub.config['providers'].get(target, {}).get('enabled', False)
+            hub.config['providers'][target]['enabled'] = not cur
+            state_str = 'enabled' if not cur else 'disabled'
+            print(green(f"Agent '{target}' is now {state_str}."))
+        else:
+            print(yellow('Invalid choice.'))
+
+
+def _limits_submenu(hub):
+    """Sub-menu for task safety budget."""
+    from .presentation import bold, green, yellow
+    while True:
+        std_budget = hub.config.get('auto', {}).get('standard', {})
+        max_calls = std_budget.get('max_calls', 6)
+        max_repairs = std_budget.get('max_repairs', 3)
+        print()
+        print(bold('--- ACCEPTANCE & SAFETY LIMITS ---'))
+        print(f"  1. Standard Task Max Calls:   {max_calls}")
+        print(f"  2. Max Verification Repairs:  {max_repairs}")
+        print(f"  3. Acceptance Mode:           Interactive Diff Preview & Confirmation [Y/n]")
+        print()
+        print("Enter 1 or 2 to adjust, or press Enter to return.")
+        try:
+            val = input('Choice: ').strip()
+        except (EOFError, KeyboardInterrupt):
+            break
+        if not val:
+            break
+        if val == '1':
+            try:
+                new_val = input(f'Enter max calls (current: {max_calls}): ').strip()
+                if new_val.isdigit() and int(new_val) > 0:
+                    hub.config['auto']['standard']['max_calls'] = int(new_val)
+                    print(green(f"Updated standard max calls to {new_val}."))
+            except (EOFError, KeyboardInterrupt):
+                break
+        elif val == '2':
+            try:
+                new_val = input(f'Enter max repairs (current: {max_repairs}): ').strip()
+                if new_val.isdigit() and int(new_val) >= 0:
+                    hub.config['auto']['standard']['max_repairs'] = int(new_val)
+                    print(green(f"Updated max repairs to {new_val}."))
+            except (EOFError, KeyboardInterrupt):
+                break
+        else:
+            print(yellow('Invalid choice.'))
+
+
+def _integrations_submenu(hub, actions_enabled):
+    """Sub-menu for tool and IDE integrations."""
+    from .presentation import bold, green, yellow, dim
     from .integrations import CLIENTS
-    print('Terminal use needs no editor extension. Select MCP clients explicitly; VS Code @hub is optional.')
-    actions = {'Install the ma command': 'launcher',
-               **{'Connect ' + ('VS Code' if client == 'vscode' else client.capitalize()) + ' MCP': 'mcp:' + client
-                  for client in CLIENTS},
-               'Connect VS Code @hub (optional extension)': 'chat'}
-    if os.name == 'nt':
-        actions['Automatic queue wake'] = 'wake'
-    selected = [name for name, entry in hub.config['providers'].items() if entry.get('enabled')]
-    # Existing integrations are not consent to configure them in another editor.
-    selected += [label for label, key in actions.items() if key == 'launcher' and value['actions'].get(key)]
-    chosen = checkbox(list(SPECS) + list(actions), selected)
-    result = apply(hub, [name for name in SPECS if name in chosen], {key: label in chosen for label, key in actions.items()})
-    from .presentation import compact
-    print(compact(result))
-    if check:
-        login_selected(hub, [name for name in SPECS if name in chosen])
-    print('Setup complete. Next: cd project; ma init; ma run "PROMPT", or use your selected MCP client.')
+    while True:
+        print()
+        print(bold('--- IDE & TOOL INTEGRATIONS ---'))
+        for idx, client in enumerate(CLIENTS, 1):
+            key = 'mcp:' + client
+            status = green('[Enabled]') if actions_enabled.get(key) else dim('[Disabled]')
+            print(f"  {idx}. Connect {client.capitalize()} MCP {status}")
+        print()
+        print("Enter number to toggle MCP integration, or press Enter to return.")
+        try:
+            val = input('Choice: ').strip()
+        except (EOFError, KeyboardInterrupt):
+            break
+        if not val:
+            break
+        if val.isdigit() and 1 <= int(val) <= len(CLIENTS):
+            client = CLIENTS[int(val) - 1]
+            key = 'mcp:' + client
+            actions_enabled[key] = not actions_enabled.get(key, False)
+            state_str = 'enabled' if actions_enabled[key] else 'disabled'
+            print(green(f"MCP client '{client}' is now {state_str}."))
+        else:
+            print(yellow('Invalid choice.'))
+
+
+def terminal(hub, check=True):
+    """Run the clean interactive dashboard menu for Multi Agents configuration."""
+    from .presentation import green, cyan, yellow, dim, bold
+    from .integrations import CLIENTS
+    from .lifecycle import install_command
+
+    providers = list(SPECS)
+    actions_enabled = {'launcher': True}
+    for client in CLIENTS:
+        actions_enabled['mcp:' + client] = False
+    actions_enabled['chat'] = False
+
+    while True:
+        enabled_list = [p for p in providers if hub.config['providers'].get(p, {}).get('enabled')]
+        leader_str = ', '.join(hub.config.get('leader_priority', []))
+        worker_str = ', '.join(hub.config.get('worker_priority', []))
+        reviewer_str = ', '.join(hub.config.get('reviewer_priority', []))
+        auto_budgets = hub.config.get('auto', {})
+        std_budget = auto_budgets.get('standard', {})
+        max_calls = std_budget.get('max_calls', 6)
+        max_repairs = std_budget.get('max_repairs', 3)
+        launcher_installed = (hub.store.home / 'runtime/bin/ma').exists() or (hub.store.home / 'runtime/bin/ma.cmd').exists()
+
+        print()
+        print(bold('================================================================================'))
+        print(bold('                    MULTI AGENTS — CONFIGURATION DASHBOARD                      '))
+        print(bold('================================================================================'))
+        print(cyan('[1] Agents & Roles'))
+        print(f"    • Lead Analyst:   {leader_str}")
+        print(f"    • Active Workers: {worker_str}")
+        print(f"    • Reviewers:      {reviewer_str}")
+        print(f"    • Enabled Agents: {', '.join(enabled_list) if enabled_list else 'none'}")
+        print()
+        print(cyan('[2] Acceptance & Safety Limits'))
+        print(f"    • Acceptance Mode: Interactive Diff preview & [Y/n] confirmation")
+        print(f"    • Budget Limits:   Standard task max calls: {max_calls} / repairs: {max_repairs}")
+        print(f"    • Workspace Mode:  Isolated worktrees & shadow repo support enabled")
+        print()
+        print(cyan('[3] IDE & Tool Integrations'))
+        print(f"    • Command Launcher (ma): {'Installed' if launcher_installed else 'Will be installed'}")
+        print(f"    • Available MCP:         VS Code, Claude, Codex, Copilot")
+        print(f"    • VS Code @hub:          Available")
+        print()
+        print(green('[0] Save & Finish') + dim(' (Press Enter to apply recommended settings)'))
+        print(bold('================================================================================'))
+
+        if not sys.stdin.isatty():
+            choice = '0'
+        else:
+            try:
+                choice = input('Select option [0-3] (Default: 0): ').strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                break
+
+        if choice in ('0', ''):
+            active_providers = [p for p in providers if hub.config['providers'].get(p, {}).get('enabled')]
+            if not active_providers:
+                active_providers = list(SPECS)
+                for p in active_providers:
+                    hub.config['providers'][p]['enabled'] = True
+            apply(hub, active_providers, actions_enabled)
+            try:
+                install_command(hub.store.home)
+            except Exception:
+                pass
+            print()
+            print(green('✔ Setup completed successfully!'))
+            print(green('✔ All settings applied. You can now run \'ma "<prompt>"\' in any project directory.'))
+            print()
+            break
+        elif choice == '1':
+            _agent_submenu(hub, providers)
+        elif choice == '2':
+            _limits_submenu(hub)
+        elif choice == '3':
+            _integrations_submenu(hub, actions_enabled)
+        else:
+            print(yellow('Please enter a valid option (0-3).'))

@@ -1,7 +1,7 @@
 """Plain-text views derived exclusively from persisted workflow evidence."""
 import json
 import time
-from .presentation import brief, text, green, red, yellow, cyan, dim, bold
+from .presentation import brief, text, green, red, yellow, cyan, dim, bold, magenta, blue
 
 
 def changed_files(changes):
@@ -12,7 +12,7 @@ def changed_files(changes):
     visible = rows[:20]
     names = [text(row['path'], 90) for row in visible]
     width = max(map(len, names))
-    lines = [bold('Files changed:')]
+    lines = [bold(cyan('📂 Files changed:'))]
     for name, row in zip(names, visible):
         if row.get('binary'):
             counts = dim('binary')
@@ -35,22 +35,22 @@ def outcome(state, include_files=True):
     lines = []
     response = state.get('agent_response', {}).get('summary') or state.get('summary')
     if response:
-        header = 'Agent response:' if state['status'] == 'completed' else 'Last agent response:'
-        lines.extend(['', bold(header), text(response, limit=4000)])
+        header = bold(green('✨ Agent response:')) if state['status'] == 'completed' else bold(yellow('⚡ Last agent response:'))
+        lines.extend(['', header, text(response, limit=4000)])
     if include_files:
         lines.extend(changed_files(state.get('file_changes', {})))
     if state['status'] == 'completed':
         acceptance = state.get('acceptance', {})
         if acceptance.get('status') == 'accepted':
-            lines.append(green('Files: applied to project' + (' automatically.' if acceptance.get('automatic') else '.')))
+            lines.append(bold(green('✔ Files: applied to project' + (' automatically.' if acceptance.get('automatic') else '.'))))
         elif acceptance.get('status') == 'partial':
-            lines.append(yellow('Files: partially applied. Remaining: ' + brief(acceptance.get('remaining_files', []))))
+            lines.append(bold(yellow('⚡ Files: partially applied. Remaining: ' + brief(acceptance.get('remaining_files', [])))))
             lines.append(dim('Next: ma accept ' + state['id']))
         else:
-            lines.append(yellow('Files: ready to apply.') + ' ' + dim('Next: ma review ' + state['id'] + '; ma accept ' + state['id']))
+            lines.append(bold(yellow('⚡ Files: ready to apply.')) + ' ' + dim('Next: ma review ' + state['id'] + '; ma accept ' + state['id']))
     elif ('call budget exhausted' in state.get('error', '').lower()
           and state.get('calls', 0) >= state.get('max_calls', 0)):
-        lines.append(red('Files: not applied; the protected workflow is incomplete.'))
+        lines.append(bold(red('✖ Files: not applied; the protected workflow is incomplete.')))
         lines.append(dim('Next: ma retry ' + state['id'] + ' --extra-calls N; after completion, run ma accept ' + state['id']))
     return lines
 
@@ -72,9 +72,9 @@ class ProgressView:
         """Return only newly observed user-facing milestones and the final response."""
         lines = []
         if not self.started:
-            lines = [bold('Workflow: ') + cyan(state['id']), bold('Task: ') + text(state.get('objective', ''), 1000)]
+            lines = [bold(cyan('◈ Workflow: ')) + bold(state['id']), bold(cyan('◈ Task:     ')) + text(state.get('objective', ''), 1000)]
             if state.get('workspace') and state['status'] not in {'completed', 'blocked', 'cancelled'}:
-                lines.append(bold('Workspace: ') + cyan(state['workspace']))
+                lines.append(bold(cyan('◈ Workspace:')) + ' ' + dim(state['workspace']))
                 lines.append(dim("Tip: Run 'ma open' to inspect code live in your editor."))
             lines.append('')
             self.started = True
@@ -108,8 +108,10 @@ class ProgressView:
             self.attempts[key] = status
             label = 'started' if status == 'running' else status
             ts = attempt.get('ended') if status in {'completed', 'failed'} else attempt.get('created')
-            label_col = green(label) if label == 'completed' else red(label) if label == 'failed' else yellow(label)
-            milestone(cyan(text(attempt['provider'])) + ' · ' + text(attempt['phase']) + ' ' + label_col, ts=ts)
+            label_col = bold(green(label)) if label == 'completed' else bold(red(label)) if label == 'failed' else yellow(label)
+            phase_str = text(attempt['phase'])
+            phase_col = cyan(phase_str) if phase_str == 'plan' else yellow(phase_str) if phase_str == 'implement' else magenta(phase_str)
+            milestone(bold(cyan(text(attempt['provider']))) + ' · ' + phase_col + ' ' + label_col, ts=ts)
 
         tracked_kinds = {'files_changed', 'leader_changed', 'auto_accept_blocked', 'worker_fallback_selected', 'worker_assigned'}
         relevant_events = [e for e in state.get('events', []) if e.get('kind') in tracked_kinds]
@@ -132,16 +134,16 @@ class ProgressView:
             self.events.add(key)
             ts = event.get('created')
             if event['kind'] == 'files_changed':
-                milestone(green(str(data.get('total_files', len(data.get('files', [])))) + ' files changed'), ts=ts)
+                milestone(bold(green(str(data.get('total_files', len(data.get('files', [])))) + ' files changed')), ts=ts)
             elif event['kind'] == 'leader_changed':
                 milestone(cyan('Leader changed: ') + brief(data), ts=ts)
             elif event['kind'] == 'worker_assigned':
                 worker_name = text(data.get('assigned_worker', ''))
                 leader_name = text(data.get('leader', 'analyst'))
                 if worker_name == leader_name:
-                    milestone(cyan('Worker assigned: ') + green(worker_name) + dim(' (self-assigned by analyst)'), ts=ts)
+                    milestone(bold(cyan('⚡ Worker assigned: ')) + bold(green(worker_name)) + dim(' (self-assigned by analyst)'), ts=ts)
                 else:
-                    milestone(cyan('Worker assigned: ') + green(worker_name) + dim(' (delegated by ' + leader_name + ')'), ts=ts)
+                    milestone(bold(cyan('⚡ Worker assigned: ')) + bold(green(worker_name)) + dim(' (delegated by ' + leader_name + ')'), ts=ts)
             elif event['kind'] == 'worker_fallback_selected':
                 milestone(yellow('Switched to ' + text(data.get('provider', 'active CLI'))) + ' · ' + text(data.get('role', 'implement')), ts=ts)
             else:

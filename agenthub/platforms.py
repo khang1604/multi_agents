@@ -58,6 +58,34 @@ def resolve_command(prefix):
         raise ValueError('Provider command must be an argument array')
     found = shutil.which(prefix[0]) or (prefix[0] if Path(prefix[0]).is_file() else None)
     if not found:
+        home = Path.home()
+        fallbacks = {
+            'agy': [
+                home / '.gemini/bin/agy',
+                home / '.local/share/MultiAgents/runtime/bin/agy',
+                home / '.local/bin/agy',
+            ],
+            'codex': [
+                home / '.codex/plugins/.plugin-appserver/codex',
+                home / '.config/Code/agent-host/sdk-cache/codex/0.163.0/linux-x64/node_modules/.bin/codex',
+                home / '.local/share/MultiAgents/runtime/bin/codex',
+                home / '.local/bin/codex',
+            ],
+            'claude': [
+                home / '.local/bin/claude',
+                home / '.config/Code/agent-host/sdk-cache/claude',
+                home / '.npm-global/bin/claude',
+            ],
+            'copilot': [
+                home / '.local/bin/copilot',
+                home / '.npm-global/bin/copilot',
+            ],
+        }.get(prefix[0].lower(), [])
+        for candidate in fallbacks:
+            if candidate.is_file():
+                found = str(candidate)
+                break
+    if not found:
         raise FileNotFoundError(prefix[0] + ' is not installed/on PATH')
     # POSIX multicall launchers (including Snap) depend on the invoked alias.
     path = Path(found).resolve() if os.name == "nt" else Path(os.path.abspath(found))

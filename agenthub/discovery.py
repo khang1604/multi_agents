@@ -7,21 +7,42 @@ import re
 import subprocess
 
 
-def repository_root(cwd):
-    """Resolve the current Git root without initializing a repository."""
-    result = subprocess.run(['git', '-C', str(cwd), 'rev-parse', '--show-toplevel'],
+def repository_root(cwd, require_git=False):
+    """Resolve the current Git root or the directory itself when git is absent or untracked."""
+    cwd_path = Path(cwd).resolve()
+    result = subprocess.run(['git', '-c', 'core.quotepath=false', '-c', 'core.longpaths=true', '-C', str(cwd_path), 'rev-parse', '--show-toplevel'],
                             capture_output=True, encoding='utf-8', errors='replace', timeout=20)
     if result.returncode:
-        raise ValueError('Not inside a Git project. Enter its folder first; Hub will not run git init automatically.')
-    return Path(result.stdout.strip()).resolve()
+        if require_git:
+            raise ValueError('Not inside a Git project. Enter its folder first; Hub will not run git init automatically.')
+        return cwd_path
+    toplevel = Path(result.stdout.strip()).resolve()
+    if toplevel != cwd_path:
+        try:
+            rel = cwd_path.relative_to(toplevel).as_posix()
+            check = subprocess.run(['git', '-C', str(toplevel), 'ls-files', '--error-unmatch', '--', rel],
+                                   capture_output=True, timeout=10)
+            if check.returncode != 0:
+                return cwd_path
+        except ValueError:
+            return cwd_path
+    return toplevel
 
 
 def detect_checks(root, include_untracked=False):
     """Infer a single candidate verifier from filenames without executing project commands."""
     listing = ['--cached', '--others', '--exclude-standard'] if include_untracked else []
     result = subprocess.run(['git', '-c', 'core.fsmonitor=false', '-C', str(root), 'ls-files', '-z', *listing],
-                            capture_output=True, encoding='utf-8', errors='replace', timeout=20, check=True)
-    files = set(result.stdout.split('\0')) - {''}
+                            capture_output=True, encoding='utf-8', errors='replace', timeout=20)
+    if result.returncode == 0:
+        files = set(result.stdout.split('\0')) - {''}
+    else:
+        files = set()
+        for p in Path(root).rglob('*'):
+            if p.is_file():
+                rel = p.relative_to(root).as_posix()
+                if not any(part in {'node_modules', '.git', '.venv', 'venv', 'bin', 'obj', 'data', 'dist', 'build'} for part in Path(rel).parts):
+                    files.add(rel)
     candidates = []
     if 'pytest.ini' in files or 'conftest.py' in files or 'tests/conftest.py' in files:
         candidates.append(('pytest', [['{python}', '-m', 'pytest']]))

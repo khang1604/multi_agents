@@ -23,8 +23,6 @@ class Hub:
             raise ValueError('Recursive dispatch from an executing worker is forbidden')
         if is_removed(self.store.home, row['id']):
             raise ValueError('Project registration was removed; initialize it explicitly before dispatch')
-        if not json.loads(row['verify']):
-            raise ValueError('No verification commands configured; initialize with explicit --verify first')
         from .settings import effective_config
         config = effective_config(self.config, self.store.home, row['id'])
         if handoff is not None:

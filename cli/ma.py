@@ -18,5 +18,5 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         print('\nStopped viewing/input; workflow state retained.')
     except (ValueError, OSError, subprocess.SubprocessError) as error:
-        print('Multi Agents: ' + str(error), file=sys.stderr)
+        print('\033[1;31m✖ Multi Agents Error:\033[0m ' + str(error), file=sys.stderr)
         sys.exit(1)

@@ -85,15 +85,19 @@ def preview(store, workflow_id):
     accepted = set(state(store, workflow_id).get('files', []))
     files, total = [], 0
     for name, after in payload.items():
-        # Check existence through Git's tree so a missing base is not confused with deletion.
-        exists = ws.git(root, 'ls-tree', '--name-only', flow['base_commit'], '--', name)
-        before = b''
-        if exists:
-            result = subprocess.run(['git', '-C', str(root), 'show', flow['base_commit'] + ':' + name],
-                                    capture_output=True, timeout=30)
-            if result.returncode:
-                raise ValueError('Cannot read saved baseline; no preview available')
-            before = result.stdout
+        if ws.is_git_repo(root):
+            exists = ws.git(root, 'ls-tree', '--name-only', flow['base_commit'], '--', name)
+            before = b''
+            if exists:
+                result = subprocess.run(['git', '-C', str(root), 'show', flow['base_commit'] + ':' + name],
+                                        capture_output=True, timeout=30)
+                if result.returncode:
+                    raise ValueError('Cannot read saved baseline; no preview available')
+                before = result.stdout
+        else:
+            target = target_path(root, name)
+            exists = target.exists()
+            before = target.read_bytes() if exists and target.is_file() else b''
         pair, binary = [], False
         for data in (before, after or b''):
             if len(data) > 512 * 1024:
@@ -142,12 +146,13 @@ def accept(store, workflow_id, automatic=False, files=None):
         if not selected.issubset(payload):
             raise ValueError('Requested file is not part of this delivery')
         prior = set(saved.get('files', [])) if saved['status'] == 'partial' else set()
-        if not prior.issubset(payload) or ws.git(root, 'rev-parse', 'HEAD') != flow['base_commit']:
-            raise ValueError('Project changed since the task started; changes were not applied')
-        changed = set(ws.git(root, 'diff', '--name-only', '--no-renames', 'HEAD').splitlines())
-        changed.update(ws.git(root, 'ls-files', '--others', '--exclude-standard').splitlines())
-        if changed - prior:
-            raise ValueError('Project changed since the task started; changes were not applied')
+        if ws.is_git_repo(root):
+            if not prior.issubset(payload) or ws.git(root, 'rev-parse', 'HEAD') != flow['base_commit']:
+                raise ValueError('Project changed since the task started; changes were not applied')
+            changed = set(ws.git(root, 'diff', '--name-only', '--no-renames', 'HEAD').splitlines())
+            changed.update(ws.git(root, 'ls-files', '--others', '--exclude-standard').splitlines())
+            if changed - prior:
+                raise ValueError('Project changed since the task started; changes were not applied')
         for name in prior:
             target = target_path(root, name)
             if (target.read_bytes() if target.is_file() else None) != payload[name]:
@@ -158,7 +163,7 @@ def accept(store, workflow_id, automatic=False, files=None):
         backups, old_modes = {}, {}
         for name in pending:
             target = target_path(root, name)
-            if target.exists() and not ws.git(root, 'ls-files', '--error-unmatch', '--', name, check=False):
+            if ws.is_git_repo(root) and target.exists() and not ws.git(root, 'ls-files', '--error-unmatch', '--', name, check=False):
                 raise ValueError('Existing untracked or ignored file would be overwritten')
             if target.exists() and not target.is_file():
                 raise ValueError('File conflicts with directory')

@@ -61,6 +61,16 @@ def bold(value, enabled=None):
     return color(value, '1', enabled)
 
 
+def magenta(value, enabled=None):
+    """Render magenta text for reviewer and analysis roles."""
+    return color(value, '35', enabled)
+
+
+def blue(value, enabled=None):
+    """Render blue text for informational markers."""
+    return color(value, '34', enabled)
+
+
 def text(value, limit=180):
     """Sanitize and bound one value for plain-text presentation."""
     clean = ' '.join(''.join(c if c.isprintable() else ' ' for c in str(value)).split())

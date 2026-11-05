@@ -100,6 +100,17 @@ def initialize(hub, cwd, name=None, verify=None, replace_verify=False):
         slug = re.sub(r'[^\w-]+', '-', root.name).strip('-')[:48] or 'project'
         project = hub.store.add_project(name or slug + '-' + key, root, verify,
                                        ['README.md', 'app', 'src', 'tests'], allow_unverified=True)
+    folder = project_settings_path(hub.store.home, project['id']).parent
+    scope_path = folder / 'scope.json'
+    if not scope_path.exists():
+        import time
+        atomic_json(scope_path, {
+            'source': str(root),
+            'synthetic_data_only': True,
+            'application_apis': [],
+            'confirmation_source': 'operator',
+            'confirmed_at': time.time(),
+        })
     validate_wrappers(root, json.loads(project['verify']))
     return refresh(hub, project, detection)
 

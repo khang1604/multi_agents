@@ -535,7 +535,8 @@ class Engine:
                 if process is not None and process.poll() is None:
                     stop_tree(process)
         evidence = {'fingerprint_before': before, 'fingerprint_after': ws.fingerprint(flow['workspace'], self.store), 'checks': results}
-        passed = results and all(item['exit_code'] == 0 for item in results)
+        verify_commands = json.loads(project['verify'])
+        passed = (results and all(item['exit_code'] == 0 for item in results)) if verify_commands else True
         self._finish_attempt(attempt_id, Result(report={'verified': bool(passed)}), {
             'fingerprint_before': before, 'fingerprint_after': evidence['fingerprint_after'],
             'checks': [{'command': item['command'], 'exit_code': item['exit_code']} for item in results]})

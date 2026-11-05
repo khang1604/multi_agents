@@ -197,14 +197,22 @@ def parser():
     return p
 
 
-def current_project(hub):
-    """Resolve the registered project matching the current approved Git directory."""
+def current_project(hub, auto_init=True):
+    """Resolve the registered project matching the current directory, or auto-initialize if enabled."""
     from .discovery import repository_root
+    from .project_context import initialize
+    from .presentation import cyan, dim
     import os
     root = repository_root(Path.cwd())
     for row in hub.store.all('SELECT * FROM projects'):
         if os.path.normcase(str(Path(row['path']).resolve())) == os.path.normcase(str(root)) and not is_removed(hub.store.home, row['id']):
             return row['name']
+    if auto_init:
+        init_res = initialize(hub, root)
+        project_name = init_res['project']['name']
+        if sys.stdout.isatty():
+            print(bold(cyan('◈ Project: ')) + bold(green(project_name)) + dim(f' ({root})'))
+        return project_name
     raise ValueError('Run ma init in this approved project first')
 
 
@@ -255,7 +263,8 @@ def watch_workflow(hub, workflow_id, watch=False, json_mode=False, interactive_a
                 if isinstance(evidence, str):
                     try: evidence = json.loads(evidence)
                     except (ValueError, TypeError): evidence = {}
-                can_accept = bool(evidence.get('checks') and all(c.get('exit_code') == 0 for c in evidence['checks']))
+                checks = evidence.get('checks', [])
+                can_accept = all(c.get('exit_code') == 0 for c in checks)
         if can_accept:
             acceptance = state.get('acceptance', {})
             if acceptance.get('status') != 'accepted':
@@ -477,6 +486,9 @@ def main(argv=None):
             project, objective = args.request
         else:
             project, objective = current_project(hub), ' '.join(args.request)
+        if sys.stdout.isatty() and not getattr(args, 'json', False):
+            print(bold(cyan('◈ Task:    ')) + bold(objective))
+            print()
         flow = hub.start(project, objective, args.request_key or uuid.uuid4().hex, args.max_calls, args.mode, launch=not args.no_start)
         should_watch = args.watch or (sys.stdout.isatty() and not getattr(args, 'json', False) and not args.no_start)
         if should_watch:
@@ -495,7 +507,8 @@ def main(argv=None):
             raise ValueError('Workflow belongs to another project')
         if flow['status'] in {'needs_review', 'completed'}:
             evidence = json.loads(flow.get('verification') or '{}')
-            passed = evidence.get('checks') and all(c.get('exit_code') == 0 for c in evidence['checks'])
+            checks = evidence.get('checks', [])
+            passed = all(c.get('exit_code') == 0 for c in checks)
             if passed:
                 if flow['status'] != 'completed':
                     hub.store.update(workflow_id, status='completed')

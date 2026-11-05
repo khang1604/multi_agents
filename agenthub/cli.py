@@ -218,16 +218,27 @@ def current_project(hub, auto_init=True):
 
 
 def latest(hub, workflow_id=None):
-    """Select the latest saved workflow for the requested project."""
+    """Select the latest saved workflow for the requested project, prioritizing actionable workflows."""
     if workflow_id:
         return workflow_id
     try:
         row = hub.store.project(current_project(hub))
+        actionable = hub.store.one(
+            "SELECT id FROM workflows WHERE project_id=? AND (delivery IS NOT NULL OR status IN ('completed', 'needs_review', 'running')) ORDER BY updated DESC LIMIT 1",
+            (row['id'],)
+        )
+        if actionable:
+            return actionable['id']
         result = hub.store.one('SELECT id FROM workflows WHERE project_id=? ORDER BY updated DESC LIMIT 1', (row['id'],))
         if result:
             return result['id']
     except ValueError:
         pass
+    actionable = hub.store.one(
+        "SELECT id FROM workflows WHERE (delivery IS NOT NULL OR status IN ('completed', 'needs_review', 'running')) ORDER BY updated DESC LIMIT 1"
+    )
+    if actionable:
+        return actionable['id']
     result = hub.store.one('SELECT id FROM workflows ORDER BY updated DESC LIMIT 1')
     if not result:
         raise ValueError('No workflow recorded yet')

@@ -51,6 +51,33 @@ def copy_tree_cow(source, target, ignore=None):
     shutil.copytree(source, target, ignore=ignore, copy_function=clone_file)
 
 
+def apply_sparse_checkout(path, files):
+    """Limit the worktree to relevant context files using git sparse-checkout if supported."""
+    if not is_git_repo(path) or not files:
+        return False
+    try:
+        patterns = list(files)
+        for config_name in ['package.json', 'tsconfig.json', 'pyproject.toml', 'Cargo.toml', 'go.mod', 'README.md']:
+            patterns.append(config_name)
+        res = subprocess.run(['git', '-c', 'core.longpaths=true', '-C', str(path), 'sparse-checkout', 'set', '--no-cone', *patterns],
+                             capture_output=True, timeout=15)
+        return res.returncode == 0
+    except Exception:
+        return False
+
+
+def disable_sparse_checkout(path):
+    """Restore the full worktree view before running verification suites."""
+    if not is_git_repo(path):
+        return False
+    try:
+        res = subprocess.run(['git', '-c', 'core.longpaths=true', '-C', str(path), 'sparse-checkout', 'disable'],
+                             capture_output=True, timeout=15)
+        return res.returncode == 0
+    except Exception:
+        return False
+
+
 def prepare(store, workflow, project):
     """Create and register an isolated workflow worktree from a clean approved baseline."""
     if workflow['workspace']:

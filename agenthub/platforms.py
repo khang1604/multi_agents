@@ -182,12 +182,78 @@ def assign_job_object(process):
         return None
 
 
-def spawn(command, **kwargs):
+def apply_landlock(workspace_path):
+    """Restrict Linux child process filesystem access using Landlock LSM (Kernel 5.13+)."""
+    if os.name != 'posix' or not sys.platform.startswith('linux'):
+        return False
+    try:
+        import ctypes
+        SYS_landlock_create_ruleset = 444
+        SYS_landlock_add_rule = 445
+        SYS_landlock_restrict_self = 446
+        PR_SET_NO_NEW_PRIVS = 38
+        libc = ctypes.CDLL(None, use_errno=True)
+
+        class LandlockRulesetAttr(ctypes.Structure):
+            _fields_ = [('handled_access_fs', ctypes.c_uint64)]
+
+        class LandlockPathBeneathAttr(ctypes.Structure):
+            _fields_ = [('allowed_access', ctypes.c_uint64), ('parent_fd', ctypes.c_int32)]
+
+        abi = libc.syscall(SYS_landlock_create_ruleset, None, 0, 1)
+        if abi < 1:
+            return False
+
+        if libc.prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0:
+            return False
+
+        ACCESS_FS_RO = (1 | 4 | 8)
+        ACCESS_FS_ALL = 0x1fff
+
+        attr = LandlockRulesetAttr(ACCESS_FS_ALL)
+        ruleset_fd = libc.syscall(SYS_landlock_create_ruleset, ctypes.byref(attr), ctypes.sizeof(attr), 0)
+        if ruleset_fd < 0:
+            return False
+
+        ro_candidates = ['/usr', '/lib', '/lib64', '/bin', '/etc', '/dev', '/tmp', os.path.expanduser('~')]
+        for p in ro_candidates:
+            if os.path.exists(p):
+                try:
+                    fd = os.open(p, os.O_PATH | os.O_CLOEXEC)
+                    path_attr = LandlockPathBeneathAttr(ACCESS_FS_RO, fd)
+                    libc.syscall(SYS_landlock_add_rule, ruleset_fd, 1, ctypes.byref(path_attr), 0)
+                    os.close(fd)
+                except OSError:
+                    pass
+
+        ws_str = str(workspace_path)
+        if os.path.exists(ws_str):
+            try:
+                fd = os.open(ws_str, os.O_PATH | os.O_CLOEXEC)
+                path_attr = LandlockPathBeneathAttr(ACCESS_FS_ALL, fd)
+                libc.syscall(SYS_landlock_add_rule, ruleset_fd, 1, ctypes.byref(path_attr), 0)
+                os.close(fd)
+            except OSError:
+                pass
+
+        res = libc.syscall(SYS_landlock_restrict_self, ruleset_fd, 0)
+        os.close(ruleset_fd)
+        return res == 0
+    except Exception:
+        return False
+
+
+def spawn(command, workspace=None, **kwargs):
     """Start a direct child process with platform-specific isolation of its process group."""
+    target_ws = workspace or kwargs.get('cwd')
     if os.name == 'nt':
         kwargs['creationflags'] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
     else:
         kwargs['start_new_session'] = True
+        if target_ws and 'preexec_fn' not in kwargs and ('/workspaces/' in str(target_ws) or '\\workspaces\\' in str(target_ws)):
+            def _isolate():
+                apply_landlock(target_ws)
+            kwargs['preexec_fn'] = _isolate
     process = subprocess.Popen(command, shell=False, **kwargs)
     if os.name == 'nt':
         process._job_object = assign_job_object(process)

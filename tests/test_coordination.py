@@ -278,6 +278,32 @@ class CoordinationTests(unittest.TestCase):
             self.assertTrue(clone_file(src / 'file1.txt', single_dst))
             self.assertEqual(single_dst.read_text(encoding='utf-8'), 'content 1')
 
+    def test_sparse_checkout(self):
+        with tempfile.TemporaryDirectory(prefix='agenthub-test-sparse-') as tmp:
+            tmp_path = Path(tmp)
+            repo = tmp_path / 'repo_sparse'
+            repo.mkdir()
+            git(repo, 'init')
+            git(repo, '-c', 'user.name=Test', '-c', 'user.email=test@localhost', 'config', 'user.name', 'Test')
+            git(repo, '-c', 'user.name=Test', '-c', 'user.email=test@localhost', 'config', 'user.email', 'test@localhost')
+            (repo / 'file_a.txt').write_text('aaa', encoding='utf-8')
+            (repo / 'file_b.txt').write_text('bbb', encoding='utf-8')
+            (repo / 'dir').mkdir()
+            (repo / 'dir' / 'file_c.txt').write_text('ccc', encoding='utf-8')
+            git(repo, 'add', '.')
+            git(repo, 'commit', '-m', 'Init')
+
+            from agenthub.workspace import apply_sparse_checkout, disable_sparse_checkout
+            applied = apply_sparse_checkout(repo, ['file_a.txt', 'dir/file_c.txt'])
+            if applied:
+                self.assertTrue((repo / 'file_a.txt').exists())
+                self.assertFalse((repo / 'file_b.txt').exists())
+                self.assertTrue((repo / 'dir' / 'file_c.txt').exists())
+
+                disabled = disable_sparse_checkout(repo)
+                self.assertTrue(disabled)
+                self.assertTrue((repo / 'file_b.txt').exists())
+
 
 
 

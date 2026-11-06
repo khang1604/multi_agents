@@ -308,6 +308,8 @@ class Engine:
                 self.store.event(flow['id'], 'verification_invalidated', {})
                 return
         if flow['phase'] == 'verify':
+            if path:
+                ws.disable_sparse_checkout(path)
             self.verify(flow, project)
             return
         if flow['calls'] >= flow['max_calls']:
@@ -320,6 +322,13 @@ class Engine:
         elif role == 'implement':
             assigned = self._get_assigned_worker(flow)
             priority = self._build_worker_priority(flow, assigned)
+            try:
+                plan_data = json.loads(flow.get('plan') or '{}')
+                context_files = plan_data.get('context_files', [])
+                if context_files and path:
+                    ws.apply_sparse_checkout(path, context_files)
+            except Exception:
+                pass
         else:
             leader = flow.get('leader')
             priority = list(dict.fromkeys(([leader] if leader else []) + self.config['reviewer_priority']))

@@ -560,6 +560,13 @@ def main(argv=None):
             import zipfile
             with zipfile.ZipFile(row['delivery']) as archive:
                 changes = archive.read('changes.patch').decode('utf-8', errors='replace')
+                if not changes.strip():
+                    parts = []
+                    manifest = json.loads(archive.read('manifest.json').decode('utf-8', errors='replace'))
+                    for item in manifest.get('changed_files', []):
+                        content = archive.read('files/' + item['path']).decode('utf-8', errors='replace')
+                        parts.append('FILE ' + item['path'] + '\n' + content[:16000])
+                    changes = '\n\n'.join(parts)
         elif row['workspace']:
             changes = diff(row['workspace'])
         else:

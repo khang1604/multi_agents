@@ -97,7 +97,13 @@ def archive_completed(store, flow, policy):
         store.update(flow['id'],delivery=str(target))
         # Destructive action only after a verified, self-contained code delivery exists.
         project = store.project(flow['project_id'])
-        ws.git(project['path'],'worktree','remove','--force',str(path))
+        if ws.is_git_repo(project['path']):
+            try:
+                ws.git(project['path'],'worktree','remove','--force',str(path))
+            except Exception:
+                shutil.rmtree(path, ignore_errors=True)
+        else:
+            shutil.rmtree(path, ignore_errors=True)
         prefix = str(path.resolve())
         with store.connection() as db:
             db.execute('DELETE FROM file_cache WHERE path=? OR substr(path,1,?)=?',

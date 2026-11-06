@@ -9,6 +9,73 @@
 
 ---
 
+## 🔄 Architecture & Multi-Agent Lifecycle
+
+Multi Agents coordinates role-based agents through an automated planning, implementation, verification, and quality review pipeline with automated self-healing loops:
+
+```mermaid
+flowchart TD
+    Start(["User Dispatch: ma 'task'"]) --> PlanBox
+
+    subgraph PlanBox ["1. Planning & Decomposition (Lead Analyst)"]
+        direction LR
+        P1["Analyze Complexity<br/>(small / standard / complex)"]
+        P2["Architecture &<br/>Solution Strategy"]
+        P3["Task Breakdown &<br/>Worker Assignment"]
+    end
+
+    PlanBox --> Handoff["Structured Handoff<br/>(Checkpoints & Acceptance Criteria)"]
+    Handoff --> ImpBox
+
+    subgraph ImpBox ["2. Implementation in Isolated Worktree"]
+        direction LR
+        W1["Worker Agent<br/>(Copilot / Codex / Claude / Antigravity)"]
+        W2["Instant CoW Reflink<br/>& Sparse Checkout"]
+    end
+
+    ImpBox --> Verify["3. Automated Local Verification<br/>(npm test / pytest / build)"]
+
+    Verify -- "❌ Test Failed (Auto-repair loop)" --> ImpBox
+    Verify -- "✅ Tests Passed" --> ReviewBox
+
+    subgraph ReviewBox ["4. Quality Review & Evidence Validation"]
+        direction LR
+        R1["Diff & Patch Validation"]
+        R2["Evidence Attestation"]
+    end
+
+    ReviewBox --> Delivery(["Interactive Acceptance [Y/n]<br/>(Auto-opens files in VS Code)"])
+    Delivery -- "Accept (Y)" --> Apply["Merged into Working Project"]
+    Delivery -- "Decline (n)" --> Discard["Preserved in Workspace / Archived"]
+```
+
+---
+
+## 🛡️ Workspace Isolation & Safety Boundary
+
+Your primary working directory is never touched directly during agent execution. All code generation, editing, and test runs take place inside detached, isolated sandboxes:
+
+```mermaid
+flowchart LR
+    subgraph Host ["Working Project (Your Working Directory)"]
+        MainRepo["Primary Project Files<br/>(Git or Non-Git)"]
+        Secrets["Protected Environment<br/>.env / Secrets / Configs (Excluded)"]
+    end
+
+    subgraph Sandbox ["Isolated Execution Workspace"]
+        Worktree["Temporary Workspace<br/>(~/.local/share/MultiAgents/workspaces/...)"]
+        Agents["AI Agents (Plan / Implement)<br/>Writes & edits files inside sandbox"]
+        TestRun["Local Test Runner<br/>pytest / npm test / cargo test"]
+    end
+
+    Host -- "1. O(1) Instant CoW Clone" --> Sandbox
+    Agents --> Worktree
+    Worktree --> TestRun
+    Sandbox -- "2. Review & Apply [Y/n]" --> MainRepo
+```
+
+---
+
 ### 🚀 3-Step Quick Start (1 Minute)
 
 #### Step 1: Install once

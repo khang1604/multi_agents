@@ -46,6 +46,17 @@ build/
 *.key
 *.pfx
 
+# Large raw media, archives & recordings (host heavy media via GitHub Releases/CDN)
+*.mp4
+*.mov
+*.webm
+*.avi
+*.mkv
+*.zip
+*.tar.gz
+*.tgz
+*.rar
+
 # Operating system & editor metadata
 .DS_Store
 Thumbs.db

@@ -9,7 +9,7 @@
 
 ---
 
-## 🔄 Architecture & Multi-Agent Lifecycle
+## Architecture & Multi-Agent Lifecycle
 
 Multi Agents coordinates role-based agents through an automated planning, implementation, verification, and quality review pipeline with automated self-healing loops:
 
@@ -35,8 +35,8 @@ flowchart TD
 
     ImpBox --> Verify["3. Automated Local Verification<br/>(npm test / pytest / build)"]
 
-    Verify -- "❌ Test Failed (Auto-repair loop)" --> ImpBox
-    Verify -- "✅ Tests Passed" --> ReviewBox
+    Verify -- "Test Failed (Auto-repair loop)" --> ImpBox
+    Verify -- "Tests Passed" --> ReviewBox
 
     subgraph ReviewBox ["4. Quality Review & Evidence Validation"]
         direction LR
@@ -51,7 +51,7 @@ flowchart TD
 
 ---
 
-## 🛡️ Workspace Isolation & Safety Boundary
+## Workspace Isolation & Safety Boundary
 
 Your primary working directory is never touched directly during agent execution. All code generation, editing, and test runs take place inside detached, isolated sandboxes:
 
@@ -76,7 +76,7 @@ flowchart LR
 
 ---
 
-### 🚀 3-Step Quick Start (1 Minute)
+### 3-Step Quick Start (1 Minute)
 
 #### Step 1: Install once
 
@@ -126,7 +126,7 @@ ma "Add user profile page with avatar upload and automated tests"
 
 ---
 
-### 🛠️ Common Scenarios & How-To
+### Common Scenarios & How-To
 
 - **Inspect code while the agent is typing:**
   Run `ma open` to open the agent's live temporary workspace in VS Code.
@@ -142,7 +142,7 @@ ma "Add user profile page with avatar upload and automated tests"
 
 ---
 
-### 📋 CLI Command Reference
+### CLI Command Reference
 
 _All commands automatically target the latest workflow if no `[workflow_id]` is provided._
 
@@ -165,7 +165,7 @@ _All commands automatically target the latest workflow if no `[workflow_id]` is 
 
 ---
 
-### 💬 VS Code Copilot Chat (`@hub`) Integration
+### VS Code Copilot Chat (`@hub`) Integration
 
 If you enabled the VS Code Chat Participant during setup:
 
@@ -180,7 +180,7 @@ If you enabled the VS Code Chat Participant during setup:
 
 ---
 
-## ⚠️ Disclaimer
+## Disclaimer
 
 - **Independent Project:** Multi Agents is an independent open-source project and is not affiliated, endorsed, sponsored, or certified by Google, OpenAI, Anthropic, or GitHub/Microsoft. All product names, logos, brands, CLI names, and trademarks mentioned are the property of their respective owners.
 - **AI-Generated Code & Verification:** Multi Agents autonomously coordinates AI models to read, generate, and modify source code. AI-generated code may contain errors, logical bugs, or security vulnerabilities. Users must review all proposed changes before accepting (`accept`) them into their codebase.
@@ -189,6 +189,6 @@ If you enabled the VS Code Chat Participant during setup:
 
 ---
 
-## 📄 License & Contributions
+## License & Contributions
 
 This project is licensed under the [MIT License](LICENSE). Contributions, bug reports, and suggestions are welcome! Please feel free to open an Issue or Pull Request on GitHub: [khang1604/multi_agents](https://github.com/khang1604/multi_agents).

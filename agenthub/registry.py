@@ -185,6 +185,10 @@ def discover_agent(name, entry, check=False, runner=None, rpc_runner=None):
         match = re.search(r'--model[^\n]*\[choices:\s*([^\]]+)\]', help_text)
         if match:
             result['model_catalog'] = re.findall(r'[\"\x27]([\w./:-]+)[\"\x27]', match[1])
+        elif name == 'antigravity':
+            code_m, text_m = runner(resolved + ['models'])
+            if code_m == 0:
+                result['model_catalog'] = [line.split()[0] for line in text_m.strip().splitlines() if line.strip() and not line.strip().startswith('Fetching') and not line.strip().startswith('⠋')]
         auth = SPECS[name]['auth']
         authenticated = None
         if name == 'copilot':

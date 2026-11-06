@@ -217,28 +217,37 @@ def current_project(hub, auto_init=True):
     raise ValueError('Run ma init in this approved project first')
 
 
-def latest(hub, workflow_id=None):
-    """Select the latest saved workflow for the requested project, prioritizing actionable workflows."""
+def latest(hub, workflow_id=None, for_action=None):
+    """Select the most relevant saved workflow for the requested project."""
     if workflow_id:
         return workflow_id
     try:
-        row = hub.store.project(current_project(hub))
+        project_id = hub.store.project(current_project(hub))['id']
+    except ValueError:
+        project_id = None
+
+    cond_proj = "project_id=?" if project_id else "1=1"
+    params = (project_id,) if project_id else ()
+
+    if for_action in {'accept', 'review'}:
         actionable = hub.store.one(
-            "SELECT id FROM workflows WHERE project_id=? AND (delivery IS NOT NULL OR status IN ('completed', 'needs_review', 'running')) ORDER BY updated DESC LIMIT 1",
-            (row['id'],)
+            f"SELECT id FROM workflows WHERE {cond_proj} AND (delivery IS NOT NULL OR status IN ('completed', 'needs_review')) ORDER BY updated DESC LIMIT 1",
+            params
         )
         if actionable:
             return actionable['id']
-        result = hub.store.one('SELECT id FROM workflows WHERE project_id=? ORDER BY updated DESC LIMIT 1', (row['id'],))
-        if result:
-            return result['id']
-    except ValueError:
-        pass
-    actionable = hub.store.one(
-        "SELECT id FROM workflows WHERE (delivery IS NOT NULL OR status IN ('completed', 'needs_review', 'running')) ORDER BY updated DESC LIMIT 1"
-    )
-    if actionable:
-        return actionable['id']
+    elif for_action == 'retry':
+        actionable = hub.store.one(
+            f"SELECT id FROM workflows WHERE {cond_proj} AND status IN ('waiting', 'blocked', 'cancelled', 'needs_review') ORDER BY updated DESC LIMIT 1",
+            params
+        )
+        if actionable:
+            return actionable['id']
+
+    result = hub.store.one(f"SELECT id FROM workflows WHERE {cond_proj} ORDER BY updated DESC LIMIT 1", params)
+    if result:
+        return result['id']
+
     result = hub.store.one('SELECT id FROM workflows ORDER BY updated DESC LIMIT 1')
     if not result:
         raise ValueError('No workflow recorded yet')
@@ -534,10 +543,10 @@ def main(argv=None):
         if not args.workflow_id and not hub.store.one('SELECT id FROM workflows LIMIT 1'):
             show({'daemon': daemon_status(hub.store.home), 'workflows': []}); return
         should_watch = (command == 'watch') or getattr(args, 'watch', False)
-        watch_workflow(hub, latest(hub, args.workflow_id), should_watch, args.json, interactive_accept=sys.stdin.isatty())
+        watch_workflow(hub, latest(hub, args.workflow_id, for_action=command), should_watch, args.json, interactive_accept=sys.stdin.isatty())
     elif command in {'accept', 'review'}:
         from .acceptance import accept, preview
-        workflow_id = latest(hub, args.workflow_id)
+        workflow_id = latest(hub, args.workflow_id, for_action=command)
         flow = hub.store.workflow(workflow_id)
         if args.project and hub.store.project(args.project)['id'] != flow['project_id']:
             raise ValueError('Workflow belongs to another project')
@@ -598,7 +607,7 @@ def main(argv=None):
         else: print(changes or 'No changes.')
     elif command == 'cancel': show(hub.store.cancel(latest(hub, args.workflow_id)))
     elif command == 'retry':
-        workflow_id = latest(hub, args.workflow_id)
+        workflow_id = latest(hub, args.workflow_id, for_action='retry')
         flow = hub.store.workflow(workflow_id)
         extra_calls = args.extra_calls
         if extra_calls == 0 and flow['phase'] != 'verify' and flow['calls'] >= flow['max_calls']:

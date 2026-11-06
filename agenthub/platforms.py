@@ -245,15 +245,10 @@ def apply_landlock(workspace_path):
 
 def spawn(command, workspace=None, **kwargs):
     """Start a direct child process with platform-specific isolation of its process group."""
-    target_ws = workspace or kwargs.get('cwd')
     if os.name == 'nt':
         kwargs['creationflags'] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
     else:
         kwargs['start_new_session'] = True
-        if target_ws and 'preexec_fn' not in kwargs and ('/workspaces/' in str(target_ws) or '\\workspaces\\' in str(target_ws)):
-            def _isolate():
-                apply_landlock(target_ws)
-            kwargs['preexec_fn'] = _isolate
     process = subprocess.Popen(command, shell=False, **kwargs)
     if os.name == 'nt':
         process._job_object = assign_job_object(process)

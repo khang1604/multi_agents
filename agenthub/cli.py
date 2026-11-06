@@ -498,9 +498,6 @@ def main(argv=None):
             project, objective = args.request
         else:
             project, objective = current_project(hub), ' '.join(args.request)
-        if sys.stdout.isatty() and not getattr(args, 'json', False):
-            print(bold(cyan('◈ Task:    ')) + bold(objective))
-            print()
         flow = hub.start(project, objective, args.request_key or uuid.uuid4().hex, args.max_calls, args.mode, launch=not args.no_start)
         should_watch = args.watch or (sys.stdout.isatty() and not getattr(args, 'json', False) and not args.no_start)
         if should_watch:

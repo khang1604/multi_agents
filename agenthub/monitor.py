@@ -72,7 +72,7 @@ class ProgressView:
         """Return only newly observed user-facing milestones and the final response."""
         lines = []
         if not self.started:
-            lines = [bold(cyan('◈ Workflow: ')) + bold(state['id']), bold(cyan('◈ Task:     ')) + text(state.get('objective', ''), 1000)]
+            lines = [bold(cyan('◈ Workflow: ')) + bold(state['id'])]
             if state.get('workspace') and state['status'] not in {'completed', 'blocked', 'cancelled'}:
                 lines.append(bold(cyan('◈ Workspace:')) + ' ' + dim(state['workspace']))
                 lines.append(dim("Tip: Run 'ma open' to inspect code live in your editor."))

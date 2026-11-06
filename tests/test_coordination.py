@@ -250,11 +250,33 @@ class CoordinationTests(unittest.TestCase):
             project = hub.store.add_project('uncommitted-demo', source, [['python', '-c', 'exit(0)']], ['main.py'])
             flow = hub.start('uncommitted-demo', 'Task with dirty worktree', 'req-dirty', launch=False)
             
-            from agenthub.workspace import prepare
+            from agenthub.workspace import prepare, clone_file, copy_tree_cow
             ws_path, commit = prepare(hub.store, flow, project)
             self.assertTrue(Path(ws_path).exists())
             self.assertEqual((Path(ws_path) / 'main.py').read_text(encoding='utf-8'), '# modified uncommitted')
             self.assertEqual((Path(ws_path) / 'extra.txt').read_text(encoding='utf-8'), 'untracked file')
+
+    def test_copy_tree_cow_and_clone(self):
+        with tempfile.TemporaryDirectory(prefix='agenthub-test-cow-') as tmp:
+            tmp_path = Path(tmp)
+            src = tmp_path / 'source_cow'
+            src.mkdir()
+            (src / 'file1.txt').write_text('content 1', encoding='utf-8')
+            (src / 'nested').mkdir()
+            (src / 'nested' / 'file2.txt').write_text('content 2', encoding='utf-8')
+
+            dst = tmp_path / 'dest_cow'
+            from agenthub.workspace import copy_tree_cow, clone_file
+            copy_tree_cow(src, dst)
+            self.assertTrue((dst / 'file1.txt').is_file())
+            self.assertEqual((dst / 'file1.txt').read_text(encoding='utf-8'), 'content 1')
+            self.assertTrue((dst / 'nested' / 'file2.txt').is_file())
+            self.assertEqual((dst / 'nested' / 'file2.txt').read_text(encoding='utf-8'), 'content 2')
+
+            # Test single clone_file
+            single_dst = tmp_path / 'file1_clone.txt'
+            self.assertTrue(clone_file(src / 'file1.txt', single_dst))
+            self.assertEqual(single_dst.read_text(encoding='utf-8'), 'content 1')
 
 
 

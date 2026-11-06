@@ -137,13 +137,61 @@ def resolve_command(prefix):
     return [str(path)] + prefix[1:]
 
 
+def assign_job_object(process):
+    """Assign an owned Windows child process to a Job Object that auto-terminates child trees on exit."""
+    if os.name != 'nt':
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        job = kernel.CreateJobObjectW(None, None)
+        if not job:
+            return None
+        class IO_COUNTERS(ctypes.Structure):
+            _fields_ = [('ReadOperationCount', ctypes.c_uint64),
+                        ('WriteOperationCount', ctypes.c_uint64),
+                        ('OtherOperationCount', ctypes.c_uint64),
+                        ('ReadTransferCount', ctypes.c_uint64),
+                        ('WriteTransferCount', ctypes.c_uint64),
+                        ('OtherTransferCount', ctypes.c_uint64)]
+        class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+            _fields_ = [('PerProcessUserTimeLimit', ctypes.c_int64),
+                        ('PerJobUserTimeLimit', ctypes.c_int64),
+                        ('LimitFlags', wintypes.DWORD),
+                        ('MinimumWorkingSetSize', ctypes.c_size_t),
+                        ('MaximumWorkingSetSize', ctypes.c_size_t),
+                        ('ActiveProcessLimit', wintypes.DWORD),
+                        ('Affinity', ctypes.c_size_t),
+                        ('PriorityClass', wintypes.DWORD),
+                        ('SchedulingClass', wintypes.DWORD)]
+        class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+            _fields_ = [('BasicLimitInformation', JOBOBJECT_BASIC_LIMIT_INFORMATION),
+                        ('IoInfo', IO_COUNTERS),
+                        ('ProcessMemoryLimit', ctypes.c_size_t),
+                        ('JobMemoryLimit', ctypes.c_size_t),
+                        ('PeakProcessMemoryLimit', ctypes.c_size_t),
+                        ('PeakJobMemoryLimit', ctypes.c_size_t)]
+        info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+        info.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        kernel.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info))
+        if hasattr(process, '_handle') and process._handle:
+            kernel.AssignProcessToJobObject(job, int(process._handle))
+        return job
+    except Exception:
+        return None
+
+
 def spawn(command, **kwargs):
     """Start a direct child process with platform-specific isolation of its process group."""
     if os.name == 'nt':
         kwargs['creationflags'] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
     else:
         kwargs['start_new_session'] = True
-    return subprocess.Popen(command, shell=False, **kwargs)
+    process = subprocess.Popen(command, shell=False, **kwargs)
+    if os.name == 'nt':
+        process._job_object = assign_job_object(process)
+    return process
 
 
 def stop_tree(process):
@@ -152,6 +200,16 @@ def stop_tree(process):
         return True
     try:
         if os.name == 'nt':
+            job = getattr(process, '_job_object', None)
+            if job:
+                try:
+                    import ctypes
+                    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+                    kernel.TerminateJobObject(job, 1)
+                    kernel.CloseHandle(job)
+                    process._job_object = None
+                except Exception:
+                    pass
             taskkill = Path(os.environ.get('SystemRoot', r'C:\Windows')) / 'System32/taskkill.exe'
             subprocess.run([str(taskkill), '/PID', str(process.pid), '/T', '/F'],
                            capture_output=True, timeout=15)

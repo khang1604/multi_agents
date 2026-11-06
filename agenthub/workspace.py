@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -25,6 +26,29 @@ def is_git_repo(path):
     """Check if the given path is a Git repository root or worktree."""
     p = Path(path)
     return p.exists() and (p / '.git').exists()
+
+
+def clone_file(src, dst):
+    """Copy a file using CoW reflink if supported by the OS filesystem, falling back to copy2."""
+    src = Path(src)
+    dst = Path(dst)
+    if os.name != 'nt':
+        try:
+            import fcntl
+            FICLONE = 0x40049409
+            with open(src, 'rb') as s, open(dst, 'wb') as d:
+                fcntl.ioctl(d.fileno(), FICLONE, s.fileno())
+            shutil.copystat(src, dst)
+            return True
+        except (OSError, AttributeError):
+            pass
+    shutil.copy2(src, dst)
+    return True
+
+
+def copy_tree_cow(source, target, ignore=None):
+    """Recursively clone or copy a directory tree with CoW reflink where available."""
+    shutil.copytree(source, target, ignore=ignore, copy_function=clone_file)
 
 
 def prepare(store, workflow, project):
@@ -57,7 +81,7 @@ def prepare(store, workflow, project):
                         if src_f.is_file():
                             dst_f = path / rel
                             dst_f.parent.mkdir(parents=True, exist_ok=True)
-                            shutil.copy2(src_f, dst_f)
+                            clone_file(src_f, dst_f)
         return str(path), commit
     else:
         if not path.exists():
@@ -67,9 +91,9 @@ def prepare(store, workflow, project):
                     continue
                 dest = path / item.name
                 if item.is_dir():
-                    shutil.copytree(item, dest, ignore=shutil.ignore_patterns(*EXCLUDED))
+                    copy_tree_cow(item, dest, ignore=shutil.ignore_patterns(*EXCLUDED))
                 elif item.is_file():
-                    shutil.copy2(item, dest)
+                    clone_file(item, dest)
             git(path, 'init')
             git(path, 'config', 'user.name', 'Hub')
             git(path, 'config', 'user.email', 'hub@local')

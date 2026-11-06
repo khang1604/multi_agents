@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -304,7 +305,29 @@ class CoordinationTests(unittest.TestCase):
                 self.assertTrue(disabled)
                 self.assertTrue((repo / 'file_b.txt').exists())
 
+    def test_open_in_editor(self):
+        from unittest.mock import patch
+        from agenthub.cli import open_in_editor
 
+        self.assertEqual(open_in_editor([]), 'none')
+        self.assertEqual(open_in_editor(None), 'none')
+
+        with patch('shutil.which', return_value='/usr/bin/code'), \
+             patch('subprocess.Popen') as mock_popen:
+            res = open_in_editor(['/tmp/file1.js', '/tmp/file2.html'])
+            self.assertEqual(res, 'editor')
+            mock_popen.assert_called_once_with(
+                ['/usr/bin/code', '-r', '/tmp/file1.js', '/tmp/file2.html'],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+
+        with patch('shutil.which', return_value=None), \
+             patch('os.name', 'nt'), \
+             patch('os.startfile', create=True) as mock_startfile:
+            res = open_in_editor(['C:\\path\\file.txt'])
+            self.assertEqual(res, 'startfile')
+            mock_startfile.assert_called_once_with('C:\\path\\file.txt')
 
 
 if __name__ == '__main__':

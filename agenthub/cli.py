@@ -284,6 +284,18 @@ def watch_workflow(hub, workflow_id, watch=False, json_mode=False, interactive_a
                 num_files = len(changes) if changes else 0
                 objective = state.get('objective', '')
                 is_vn = bool(re.search(r'[àáảãạăắằẳẵặâấầẩẫậđèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵ]', objective, re.I))
+                ws_path = Path(state['workspace']) if state.get('workspace') and Path(state['workspace']).exists() else None
+                if ws_path:
+                    raw_files = state.get('file_changes', {}).get('files', []) or [s['path'] for s in changes if isinstance(s, dict) and 'path' in s]
+                    targets_to_open = [(ws_path / f).resolve() for f in raw_files if (ws_path / f).is_file()]
+                    if not targets_to_open:
+                        targets_to_open = [ws_path.resolve()]
+                    open_in_editor(targets_to_open)
+                    file_names = ', '.join([p.name for p in targets_to_open[:3]])
+                    if len(targets_to_open) > 3:
+                        file_names += f" (+{len(targets_to_open) - 3} more)"
+                    hint = f"Đã mở các file trong workspace để bạn kiểm tra ({file_names})." if is_vn else f"Opened workspace files in editor for review ({file_names})."
+                    print(dim(hint))
                 if is_vn:
                     raw_prompt = f'\nÁp dụng {num_files} file đã thay đổi vào dự án ngay bây giờ? [Y/n]: ' if num_files else '\nÁp dụng các thay đổi vào dự án ngay bây giờ? [Y/n]: '
                 else:
@@ -313,20 +325,34 @@ def watch_workflow(hub, workflow_id, watch=False, json_mode=False, interactive_a
 
 
 def open_in_editor(target):
-    """Open a file or directory in VS Code / IDE or default system viewer."""
+    """Open a file, list of files, or directory in VS Code / IDE or default system viewer."""
     import shutil
-    target_str = str(target)
-    code_bin = shutil.which('code') or shutil.which('cursor')
+    if isinstance(target, (list, tuple, set)):
+        targets = [str(t) for t in target if t]
+    else:
+        targets = [str(target)] if target else []
+    if not targets:
+        return 'none'
+    code_bin = shutil.which('code') or shutil.which('cursor') or shutil.which('antigravity-ide-snap.antigravity-ide')
     if code_bin:
         try:
-            subprocess.Popen([code_bin, target_str], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.Popen([code_bin, '-r', *targets], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return 'editor'
         except OSError:
             pass
     if os.name == 'nt' and hasattr(os, 'startfile'):
         try:
-            os.startfile(target_str)
+            for t in targets:
+                os.startfile(t)
             return 'startfile'
+        except OSError:
+            pass
+    open_bin = shutil.which('xdg-open') if os.name != 'nt' else None
+    if open_bin:
+        try:
+            for t in targets:
+                subprocess.Popen([open_bin, t], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return 'xdg-open'
         except OSError:
             pass
     return 'path_only'

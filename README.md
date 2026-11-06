@@ -236,6 +236,15 @@ Nếu bạn bật tích hợp VS Code Chat Participant trong quá trình setup:
 
 ---
 
+## ⚠️ Disclaimer / Tuyên bố từ chối trách nhiệm
+
+- **Sản phẩm độc lập:** MultiAgents là một dự án mã nguồn mở độc lập, không liên kết, tài trợ hay được chứng nhận chính thức bởi Google, OpenAI, Anthropic hoặc GitHub/Microsoft. Tất cả các nhãn hiệu, tên CLI và API được nhắc đến thuộc quyền sở hữu của các tổ chức tương ứng.
+- **Trách nhiệm kiểm duyệt:** MultiAgents tự động điều phối các công cụ AI để đọc, sinh và sửa đổi mã nguồn. Mã nguồn do AI sinh ra có thể chứa lỗi logic hoặc lỗ hổng bảo mật. Người dùng cần chủ động kiểm tra kỹ lưỡng (review) các thay đổi trước khi chấp nhận (`accept`) áp dụng vào dự án thực tế.
+- **Hạn ngạch & Chi phí:** Người dùng hoàn toàn tự chịu trách nhiệm về việc quản lý hạn ngạch (quota), giới hạn sử dụng và mọi chi phí API (nếu có) phát sinh từ các tài khoản dịch vụ AI được kết nối.
+- **An toàn dữ liệu:** Không sử dụng công cụ với các kho mã nguồn chứa dữ liệu nhạy cảm thực tế, khóa bí mật (secrets, private keys) hoặc môi trường production chưa được cách ly an toàn.
+
+---
+
 ## Giấy phép & Đóng góp (License & Contributions)
 
-Dự án được phát triển mã nguồn mở cục bộ. Mọi đóng góp, báo lỗi và ý kiến đóng góp vui lòng mở Issue hoặc Pull Request trên GitHub: [khang1604/multi_agents](https://github.com/khang1604/multi_agents).
+Dự án được phát hành theo giấy phép [MIT License](LICENSE). Mọi đóng góp, báo lỗi và ý kiến đóng góp vui lòng mở Issue hoặc Pull Request trên GitHub: [khang1604/multi_agents](https://github.com/khang1604/multi_agents).

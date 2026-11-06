@@ -9,6 +9,14 @@
 
 ---
 
+## Demo
+
+<p align="center">
+  <img src="assets/demo.gif" alt="Multi Agents CLI and Live Browser Verification Demo" width="100%" />
+</p>
+
+---
+
 ## Architecture & Multi-Agent Lifecycle
 
 Multi Agents coordinates role-based agents through an automated planning, implementation, verification, and quality review pipeline with automated self-healing loops:
